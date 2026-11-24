@@ -102,6 +102,8 @@
   .pc .face { position: absolute; inset: 0; display: grid; place-items: center; font-size: calc(var(--cw) * .44); padding-bottom: 22%; }
   .pc .face .crown { width: calc(var(--cw) * .5); height: calc(var(--cw) * .5); }
   .pc .role { position: absolute; left: 0; right: 0; bottom: 30%; font: 500 max(12px, calc(var(--cw) * .13)) var(--sans); }
+  .pc .art { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; }
+  .pc .art ~ .role { bottom: 13%; }
   .pc .chips { position: absolute; left: 50%; bottom: -10px; translate: -50% 0; display: flex; gap: 4px; }
   .chip { font: 600 11px/1 var(--sans); padding: 4px 6px; border-radius: 99px; background: var(--ink); color: #fff; white-space: nowrap; }
   .chip.kill { background: var(--red); animation: bump .2s var(--out); }

@@ -9,6 +9,7 @@ import { createGame, act, forfeit, view, MAX_PLAYERS, type Game, type GameView }
 
 const PUBLIC = new URL('../public/', import.meta.url);
 const STATIC: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'] };
+const CARD_ART = /^\/cards\/(10|[2-9JQK])[CDHS]\.png$/; // card faces, see public/cards/LICENSE.txt
 const IDLE_MS = 60 * 60 * 1000;
 
 type Seat = { id: string; token: string; name: string; left: boolean };
@@ -120,10 +121,11 @@ export function createServer({ db: dbPath = ':memory:' } = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
     try {
-      if (req.method === 'GET' && STATIC[url.pathname]) {
-        const [file, type] = STATIC[url.pathname];
+      const file = STATIC[url.pathname] ?? (CARD_ART.test(url.pathname) && [url.pathname.slice(1), 'image/png']);
+      if (req.method === 'GET' && file) {
+        const [path, type] = file;
         res.writeHead(200, { 'content-type': type });
-        return res.end(await readFile(new URL(file, PUBLIC)));
+        return res.end(await readFile(new URL(path, PUBLIC)));
       }
 
       const m = url.pathname.match(/^\/api\/rooms\/([\w-]+)\/(\w+)$/);

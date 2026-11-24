@@ -45,11 +45,11 @@ function Card({ c, small, extra, disabled, pressed, onClick, style, where }: Car
   if (!c) return <span class={cls('pc gap', small && 'sm')} aria-hidden="true" />;
   const kills = c.stack.length;
   const name = c.kingOf ? 'King' : `${c.rank} of ${ROLE[c.suit!]}s`;
-  const idx = c.kingOf ? <Crown /> : <><b>{c.rank}</b><i>{SYM[c.suit!]}</i></>;
   return (
     <button type="button" class={cls('pc', c.kingOf ? 'king' : red(c) && 'red', small && 'sm', extra)} disabled={disabled}
       aria-pressed={pressed} onClick={onClick} style={style} data-id={c.id} aria-label={`${where ? `${where}: ` : ''}${name}, kills up to ${lim(c)}, ${kills} kills`}>
-      <span class="ix tl">{idx}</span><span class="face">{c.kingOf ? <Crown /> : SYM[c.suit!]}</span><span class="ix br">{idx}</span>
+      {c.kingOf ? <><span class="ix tl"><Crown /></span><span class="face"><Crown /></span><span class="ix br"><Crown /></span></>
+        : <img class="art" src={`/cards/${c.rank}${c.suit}.png`} alt="" draggable={false} />}
       <span class="role">{c.kingOf ? 'King' : ROLE[c.suit!]}</span>
       <span class="chips">
         <span class="chip" title={`Kills cards up to ${lim(c)}`}>≤{lim(c)}</span>
