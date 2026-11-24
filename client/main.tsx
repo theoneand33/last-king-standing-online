@@ -131,7 +131,7 @@ function Browser({ run, onJoin }: { run: Run; onJoin: (s: Session) => void }) {
     <Page title="Last King Standing">
       <main class="felt">
         <section class="opener">
-          <h2>Pull up a chair.</h2>
+          <h2>Pull up a chair</h2>
           <p>A card war for 2 to 10 players. Guard your King, strike theirs, be the last crown on the table.</p>
           <form id="new" class="newbar" onSubmit={(e) => { e.preventDefault(); sit('/api/rooms', form)(); }}>
             <label><span>Your name</span><input id="name" autocomplete="nickname" maxLength={24} value={form.name} required
@@ -175,8 +175,8 @@ function Lobby({ data, run, send, onLeave }: TableProps) {
             <p class="whisper">{room.players.join(' · ')}</p>
             {room.host === you ? <>
               <button id="start" class="btn gold big" disabled={room.players.length < 2} onClick={run(() => send('start', {}))}>Deal the cards</button>
-              <p class="whisper">{room.players.length < 2 ? 'Needs one more player.' : 'Open seats stay empty once you deal.'}</p>
-            </> : <p class="whisper">The host deals when everyone is in.</p>}
+              <p class="whisper">{room.players.length < 2 ? 'Needs one more player' : 'Open seats stay empty once you deal'}</p>
+            </> : <p class="whisper">The host deals when everyone is in</p>}
           </div>
         </div>
       </main>
@@ -217,7 +217,7 @@ function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m
           <div class="muck"><span class="tiny">Discards</span>{[0, 1].map((i) => discard[i]
             ? <Card key={discard[i]} c={byId(discard[i])} disabled extra="land" small /> : <span key={`d${i}`} class="pc ghost sm" />)}</div>
           <div class="formation">{[0, 1, 2, 3, 4, 5].map(slot)}</div>
-          <p class="whisper">{placing ? 'Tap cards in order: front row left to right, then the back row.' : 'Tap two cards to throw away. Your King stays.'}</p>
+          <p class="whisper">{placing ? 'Tap cards in order: front row left to right, then the back row' : 'Tap two cards to throw away. Your King stays.'}</p>
         </div>
         <div class="hand-tray" ref={tray}>
           <div class="hand">{pool.map((c, i) => discard.includes(c.id) || layout.includes(c.id) ? null
@@ -260,7 +260,7 @@ function Play({ data, run, send, onLeave }: TableProps) {
   let banner: ComponentChildren = null;
   let status = turnName; // read out by the live region below
   if (g.phase === 'over') {
-    status = `${g.players.find((p) => p.id === g.winner)!.name} wins the table.`;
+    status = `${g.players.find((p) => p.id === g.winner)!.name} wins the table`;
     banner = <div class="dealer win"><b>{status}</b><button id="leave2" class="btn gold" onClick={onLeave}>Back to tables</button></div>;
   } else if (g.pending && g.pending.defender === meIdx) {
     const t = g.pending.target;
@@ -279,7 +279,7 @@ function Play({ data, run, send, onLeave }: TableProps) {
     : 'Swap two cards in one layout, or pass';
 
   const right = <>
-    <span class={cls('pill', myTurn && 'hot')}>{turnName}{g.phase === 'play' && ` · ${g.half}`}</span>
+    <span class={cls('pill', myTurn && 'hot')}>{turnName}{g.phase === 'play' && g.half === 'swap' && ' · swap'}</span>
     <button id="logbtn" class="btn line" aria-expanded={logOpen} aria-controls="log" onClick={() => setLogOpen(!logOpen)}>Log</button>
   </>;
 
@@ -305,9 +305,9 @@ function Play({ data, run, send, onLeave }: TableProps) {
           <nav class="moves" aria-label="Moves"><span class="hint">{hint}</span>
             {g.half === 'action' && <>
               <button id="attack" class="btn gold" onClick={move(() => { const [a, t] = need2(); mine(a); return act({ type: 'attack', col: a.col, target: t }); })}>Attack</button>
-              <button id="res" class="btn gold" onClick={move(() => { const [a, s] = need2(); mine(a); return act({ type: 'resurrect', col: a.col, from: s }); })}>Resurrect</button>
+              <button id="res" class="btn line" onClick={move(() => { const [a, s] = need2(); mine(a); return act({ type: 'resurrect', col: a.col, from: s }); })}>Resurrect</button>
             </>}
-            <button id="swap" class="btn gold" onClick={move(() => {
+            <button id="swap" class={cls('btn', g.half === 'action' ? 'line' : 'gold')} onClick={move(() => {
               const [a, b] = need2();
               if (a.player !== b.player) throw new Error('Swap within one layout');
               return act({ type: 'swap', player: a.player, a: [a.row, a.col], b: [b.row, b.col] });
