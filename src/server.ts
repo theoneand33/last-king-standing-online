@@ -9,7 +9,7 @@ import { createGame, act, forfeit, view, MAX_PLAYERS, type Game, type GameView }
 
 const PUBLIC = new URL('../public/', import.meta.url);
 const STATIC: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'] };
-const CARD_ART = /^\/cards\/(10|[2-9JQK])[CDHS]\.png$/; // card faces, see public/cards/LICENSE.txt
+const CARD_ART = /^\/cards\/((10|[2-9JQKA])[CDHS]|JK[12])\.png$/; // card faces, see public/cards/LICENSE.txt
 const IDLE_MS = 60 * 60 * 1000;
 
 type Seat = { id: string; token: string; name: string; left: boolean };

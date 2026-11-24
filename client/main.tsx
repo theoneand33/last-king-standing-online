@@ -48,8 +48,8 @@ function Card({ c, small, extra, disabled, pressed, onClick, style, where }: Car
   return (
     <button type="button" class={cls('pc', c.kingOf ? 'king' : red(c) && 'red', small && 'sm', extra)} disabled={disabled}
       aria-pressed={pressed} onClick={onClick} style={style} data-id={c.id} aria-label={`${where ? `${where}: ` : ''}${name}, kills up to ${lim(c)}, ${kills} kills`}>
-      {c.kingOf ? <><span class="ix tl"><Crown /></span><span class="face"><Crown /></span><span class="ix br"><Crown /></span></>
-        : <img class="art" src={`/cards/${c.rank}${c.suit}.png`} alt="" draggable={false} />}
+      {/* Art is named by card id without the deck tag: 7D-2 → 7D, a King's AH or JK1. */}
+      <img class="art" src={`/cards/${c.id.replace(/-\d+$/, '')}.png`} alt="" draggable={false} />
       <span class="role">{c.kingOf ? 'King' : ROLE[c.suit!]}</span>
       <span class="chips">
         <span class="chip" title={`Kills cards up to ${lim(c)}`}>≤{lim(c)}</span>

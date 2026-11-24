@@ -8,15 +8,15 @@
 <meta name="theme-color" content="#ffffff">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     color-scheme: light dark;
     --bg: light-dark(#f5f6f8, #111318); --surface: light-dark(#fff, #1a1d23); --soft: light-dark(#eef0f3, #252932);
     --line: light-dark(#dfe2e7, #2f343d); --text: light-dark(#16181d, #e8eaee); --mute: light-dark(#5f6672, #9aa1ad);
     --primary: light-dark(#2557d6, #5b8cff); --primary-hi: light-dark(#1d47b3, #7aa2ff); --on-primary: light-dark(#fff, #0b1020); --sel: var(--primary);
-    --card: light-dark(#fff, #f6f6f3); --card-edge: light-dark(#d5d8de, #c9ccd2); --ink: #1b1b1b; --red: #c3262e; --gold: #d4a12a; --gold-deep: #a87c17; --gold-ink: #8f6416;
-    --sans: 'Inter', system-ui, sans-serif; --face: 'Libre Baskerville', Georgia, serif;
+    --card: light-dark(#fff, #f6f6f3); --card-edge: light-dark(#d5d8de, #c9ccd2); --ink: #1b1b1b; --red: #c3262e; --gold: #d4a12a; --gold-ink: #8f6416;
+    --sans: 'Inter', system-ui, sans-serif;
     --out: cubic-bezier(.2, .7, .2, 1); --in-out: cubic-bezier(.77, 0, .175, 1); --cw: 92px;
   }
   :root[data-theme="light"] { color-scheme: light; }
@@ -90,26 +90,21 @@
   .roster li.open .av { background: transparent; border: 1px dashed var(--line); }
 
   /* playing cards */
-  .pc { position: relative; width: var(--cw); aspect-ratio: 5 / 7; flex: none; padding: 0; font: inherit; color: var(--ink); background: var(--card);
-        border: 1px solid var(--card-edge); border-radius: 8px; cursor: pointer; box-shadow: 0 1px 2px rgb(0 0 0 / .12);
+  .pc { position: relative; width: var(--cw); aspect-ratio: 7 / 10; flex: none; padding: 0; font: inherit; color: var(--ink); background: none;
+        border: 0; border-radius: 5px; cursor: pointer;
         transition: transform .15s var(--out), box-shadow .15s var(--out); }
   @media (hover: hover) and (pointer: fine) { .pc:hover:not(:disabled) { transform: translateY(-3px); } }
   .pc.red { color: var(--red); }
-  .pc .ix { position: absolute; display: grid; justify-items: center; line-height: 1; font-family: var(--face); }
-  .pc .ix b { font-weight: 700; font-size: calc(var(--cw) * .2); } .pc .ix i { font-style: normal; font-size: calc(var(--cw) * .16); }
-  .pc .ix .crown { width: calc(var(--cw) * .2); height: calc(var(--cw) * .2); }
-  .pc .tl { top: 6px; left: 7px; } .pc .br { bottom: 6px; right: 7px; rotate: 180deg; }
-  .pc .face { position: absolute; inset: 0; display: grid; place-items: center; font-size: calc(var(--cw) * .44); padding-bottom: 22%; }
-  .pc .face .crown { width: calc(var(--cw) * .5); height: calc(var(--cw) * .5); }
-  .pc .role { position: absolute; left: 0; right: 0; bottom: 30%; font: 500 max(12px, calc(var(--cw) * .13)) var(--sans); }
-  .pc .art { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: inherit; }
-  .pc .art ~ .role { bottom: 13%; }
+  .pc .art { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
+  /* The art fills the face edge to edge, so the role straddles the top edge like the chips do the bottom. */
+  .pc .role { position: absolute; left: 50%; top: -9px; translate: -50% 0; font: 600 11px/1 var(--sans); padding: 3px 6px;
+              border-radius: 99px; background: var(--card); border: 1px solid var(--card-edge); white-space: nowrap; }
   .pc .chips { position: absolute; left: 50%; bottom: -10px; translate: -50% 0; display: flex; gap: 4px; }
   .chip { font: 600 11px/1 var(--sans); padding: 4px 6px; border-radius: 99px; background: var(--ink); color: #fff; white-space: nowrap; }
   .chip.kill { background: var(--red); animation: bump .2s var(--out); }
   @keyframes bump { from { scale: 1.35; } }
-  .pc.king { color: var(--gold-deep); border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 1px 2px rgb(0 0 0 / .12); }
-  .pc.king .role { color: var(--gold-ink); }
+  .pc.king { box-shadow: 0 0 0 2px var(--gold); }
+  .pc.king .role { color: var(--gold-ink); border-color: var(--gold); }
   .pc.sel { transform: translateY(-6px); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--sel); }
   .pc.gap { visibility: hidden; }
   .pc.ghost { background: transparent; border: 1px dashed var(--line); box-shadow: none; cursor: default; display: grid; place-items: center; align-content: center; color: var(--mute); font-size: 12px; font-weight: 600; }
@@ -117,9 +112,8 @@
   .pc.land { animation: land .2s var(--out); cursor: default; }
   .pc.land:hover { transform: none; }
   @keyframes land { from { opacity: 0; transform: translateY(-14px) scale(1.04); } }
-  .pc.sm { --cw: 54px; border-radius: 6px; }
-  .pc.sm .role { display: none; } .pc.sm .br { display: none; }
-  .pc.sm .face { font-size: 24px; padding: 18% 0 0; } .pc.sm .face .crown { width: 24px; height: 24px; }
+  .pc.sm { --cw: 54px; }
+  .pc.sm .role { display: none; }
   .pc.sm .chips { gap: 2px; } .pc.sm .chip { padding: 2px 3px; }
 
   /* setup */
@@ -170,7 +164,7 @@
     .opener h2 { font-size: 24px; }
     .board { padding: 16px 12px; }
     .opps { grid-template-columns: repeat(auto-fit, minmax(152px, 1fr)); gap: 8px; }
-    .opp { padding: 8px 4px; } .mini-grid { grid-template-columns: repeat(3, 44px); gap: 12px 4px; } .pc.sm { --cw: 44px; } .pc.sm .face { font-size: 19px; }
+    .opp { padding: 8px 4px; } .mini-grid { grid-template-columns: repeat(3, 44px); gap: 12px 4px; } .pc.sm { --cw: 44px; }
     .mine { padding: 16px 8px 24px; } .my-grid { --cw: 84px; gap: 24px 12px; }
     .moves .hint { flex-basis: 100%; text-align: center; padding: 4px 0; }
     .hand { flex-wrap: wrap; row-gap: 20px; } .hand .pc { --cw: 72px; margin: 0 -4px; }

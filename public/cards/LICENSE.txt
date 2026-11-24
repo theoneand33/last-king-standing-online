@@ -1,4 +1,4 @@
-Card faces: "Stylized Playing cards pack (52 cards)" by MrEliptik (Victor Meunier)
-https://mreliptik.itch.io/playing-cards-packs-52-cards
+Card faces: "Playing Cards Pack" by Kenney (www.kenney.nl)
+https://kenney.nl/assets/playing-cards-pack
 CC0 1.0 Universal: http://creativecommons.org/publicdomain/zero/1.0/
-Resized to 240px wide from the white PNG set.
+"Cards (large)" PNGs cropped to the 42x60 card. Named by card id: 7D, AH, JK1 (black joker), JK2 (red joker).
