@@ -29,7 +29,7 @@ async function api<T = any>(path: string, body?: object, token = ''): Promise<T>
   return json;
 }
 
-// ---------- pieces: a card table seen from your chair ----------
+// ---------- pieces ----------
 const Crown = () => (
   <svg class="crown" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 7l4.5 4L12 4l4.5 7L21 7l-2 11H5L3 7zm2 13h14v2H5z" /></svg>
 );
@@ -59,13 +59,30 @@ function Card({ c, small, extra, disabled, pressed, onClick, style, where }: Car
   );
 }
 
+// Follows the system until the player picks; the pick is stored and set on <html data-theme>.
+const applyTheme = (t: string | null) => { if (t) document.documentElement.dataset.theme = t; };
+applyTheme(store.get('lks-theme'));
+function ThemeToggle() {
+  const [dark, setDark] = useState(() => (document.documentElement.dataset.theme ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark');
+  const flip = () => { const t = dark ? 'light' : 'dark'; applyTheme(t); store.set('lks-theme', t); setDark(!dark); };
+  return (
+    <button id="theme" type="button" class="btn line icon" aria-label="Dark theme" title="Dark theme" aria-pressed={dark} onClick={flip}>
+      {/* Lucide icons (ISC licence): sun while dark, moon while light */}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        {dark ? <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></>
+          : <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" />}
+      </svg>
+    </button>
+  );
+}
+
 function Page({ title, right, onLeave, children }: { title: string; right?: ComponentChildren; onLeave?: () => void; children: ComponentChildren }) {
   useEffect(() => { document.title = title; }, [title]);
   return (
     <>
       <header class="top">
         <div class="brand"><span class="logo"><Crown /></span><h1>{title}</h1></div>
-        <div class="top-r">{right}{onLeave && <button id="leave" class="btn line" onClick={onLeave}>Leave game</button>}</div>
+        <div class="top-r">{right}<ThemeToggle />{onLeave && <button id="leave" class="btn line" onClick={onLeave}>Leave game</button>}</div>
       </header>
       {children}
     </>
@@ -103,14 +120,6 @@ function useCardMotion() {
   return root;
 }
 
-const SeatRing = ({ names, max, size }: { names: string[]; max: number; size: string }) => (
-  <div class={`ring ${size}`} style={{ '--n': max }}>
-    {Array.from({ length: max }, (_, i) => (
-      <span class={cls('seat', names[i] && 'taken')} style={{ '--i': i }} title={names[i] ?? 'Open spot'}>{names[i]?.[0].toUpperCase()}</span>
-    ))}
-  </div>
-);
-
 // ---------- screens ----------
 function Browser({ run, onJoin }: { run: Run; onJoin: (s: Session) => void }) {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
@@ -129,11 +138,11 @@ function Browser({ run, onJoin }: { run: Run; onJoin: (s: Session) => void }) {
 
   return (
     <Page title="Last King Standing">
-      <main class="felt">
+      <main class="main">
         <section class="opener">
           <h2>Play a game</h2>
           <p>A card war for 2 to 10 players. Guard your King, strike theirs, be the last King standing.</p>
-          <form id="new" class="newbar" onSubmit={(e) => { e.preventDefault(); sit('/api/rooms', form)(); }}>
+          <form id="new" class="newbar panel" onSubmit={(e) => { e.preventDefault(); sit('/api/rooms', form)(); }}>
             <label><span>Your name</span><input id="name" autocomplete="nickname" maxLength={24} value={form.name} required
               onInput={(e) => setForm({ ...form, name: e.currentTarget.value })} /></label>
             <label><span>Game name</span><input id="room" placeholder="Friday night" maxLength={24} value={form.room}
@@ -145,17 +154,16 @@ function Browser({ run, onJoin }: { run: Run; onJoin: (s: Session) => void }) {
         </section>
         <section class="tables">
           <h2>{offline ? OFFLINE : rooms.length ? `${rooms.length} game${rooms.length > 1 ? 's' : ''} open` : 'No games yet. Create the first one.'}</h2>
-          <div class="table-grid">{rooms.map((r) => {
+          {rooms.length > 0 && <ul class="game-list panel">{rooms.map((r) => {
             const open = r.status === 'lobby' && r.players.length < r.max;
             return (
-              <article class="mini" key={r.id}>
-                <SeatRing names={r.players} max={r.max} size="small" />
-                <div class="mini-t"><b>{r.name}</b><span>{r.players.length} of {r.max} players · {r.status === 'lobby' ? 'waiting' : 'playing'}</span></div>
+              <li class="game-row" key={r.id}>
+                <div><b>{r.name}</b><span class="meta">{r.players.length} of {r.max} players · {r.players.join(', ')}</span></div>
                 {open ? <button class="btn gold" onClick={sit(`/api/rooms/${r.id}/join`, { name: form.name })}>Join</button>
                   : <span class="pill">{r.status === 'lobby' ? 'Full' : 'In play'}</span>}
-              </article>
+              </li>
             );
-          })}</div>
+          })}</ul>}
         </section>
       </main>
     </Page>
@@ -168,17 +176,17 @@ function Lobby({ data, run, send, onLeave }: TableProps) {
   const { room, you } = data;
   return (
     <Page title={room.name} right={<span class="pill">{room.players.length}/{room.max} players</span>} onLeave={onLeave}>
-      <main class="felt center">
-        <div class="oval">
-          <SeatRing names={room.players} max={room.max} size="big" />
-          <div class="oval-c">
-            <p class="whisper">{room.players.join(' · ')}</p>
-            {room.host === you ? <>
-              <button id="start" class="btn gold big" disabled={room.players.length < 2} onClick={run(() => send('start', {}))}>Start game</button>
-              <p class="whisper">{room.players.length < 2 ? 'Needs one more player' : 'No one else can join once you start'}</p>
-            </> : <p class="whisper">The host starts the game when everyone is in</p>}
-          </div>
-        </div>
+      <main class="main center">
+        <section class="lobby panel">
+          <h2>Players</h2>
+          <ul class="roster">{Array.from({ length: room.max }, (_, i) => room.players[i]
+            ? <li><span class="av" aria-hidden="true">{room.players[i][0].toUpperCase()}</span>{room.players[i]}</li>
+            : <li class="open"><span class="av" aria-hidden="true" />Open spot</li>)}</ul>
+          {room.host === you ? <>
+            <button id="start" class="btn gold big" disabled={room.players.length < 2} onClick={run(() => send('start', {}))}>Start game</button>
+            <p class="whisper">{room.players.length < 2 ? 'Needs one more player' : 'No one else can join once you start'}</p>
+          </> : <p class="whisper">The host starts the game when everyone is in</p>}
+        </section>
       </main>
     </Page>
   );
@@ -196,7 +204,7 @@ function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m
   const me = g.players.find((p) => p.id === data.you)!;
   if (!me.alive || me.ready) {
     const waiting = g.players.filter((p) => p.alive && !p.ready).map((p) => p.name);
-    return <Page title={data.room.name} onLeave={onLeave}><main class="felt center"><p class="whisper">Waiting for {waiting.join(', ')} to place their cards…</p></main></Page>;
+    return <Page title={data.room.name} onLeave={onLeave}><main class="main center"><p class="whisper">Waiting for {waiting.join(', ')} to place their cards…</p></main></Page>;
   }
   const pool = [me.king, ...(me.hand as CardT[])];
   const { discard, layout } = pick;
@@ -212,14 +220,14 @@ function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m
 
   return (
     <Page title={data.room.name} right={<span class="pill">{placing ? 'Place 6' : `Discard ${2 - discard.length}`}</span>} onLeave={onLeave}>
-      <main class="felt setup">
+      <main class="main setup">
         <div class="lay">
           <div class="muck"><span class="tiny">Discards</span>{[0, 1].map((i) => discard[i]
             ? <Card key={discard[i]} c={byId(discard[i])} disabled extra="land" small /> : <span key={`d${i}`} class="pc ghost sm" />)}</div>
-          <div class="formation">{[0, 1, 2, 3, 4, 5].map(slot)}</div>
+          <div class="formation panel">{[0, 1, 2, 3, 4, 5].map(slot)}</div>
           <p class="whisper">{placing ? 'Tap cards in order: front row left to right, then the back row' : 'Tap two cards to throw away. Your King stays.'}</p>
         </div>
-        <div class="hand-tray" ref={tray}>
+        <div class="hand-tray panel" ref={tray}>
           <div class="hand">{pool.map((c, i) => discard.includes(c.id) || layout.includes(c.id) ? null
             : <Card key={c.id} c={c} style={{ '--i': i }} onClick={() => tap(c.id)} />)}</div>
           <div class="tray-actions">
@@ -236,7 +244,7 @@ function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m
 function Play({ data, run, send, onLeave }: TableProps) {
   const [sel, setSel] = useState<Cell[]>([]);
   const [logOpen, setLogOpen] = useState(false);
-  const table = useCardMotion();
+  const board = useCardMotion();
   const g = data.game!;
   const meIdx = g.players.findIndex((p) => p.id === data.you);
   const me = g.players[meIdx];
@@ -261,18 +269,18 @@ function Play({ data, run, send, onLeave }: TableProps) {
   let status = turnName; // read out by the live region below
   if (g.phase === 'over') {
     status = `${g.players.find((p) => p.id === g.winner)!.name} wins`;
-    banner = <div class="dealer win"><b>{status}</b><button id="leave2" class="btn gold" onClick={onLeave}>Back to games</button></div>;
+    banner = <div class="dealer panel"><b>{status}</b><button id="leave2" class="btn gold" onClick={onLeave}>Back to games</button></div>;
   } else if (g.pending && g.pending.defender === meIdx) {
     const t = g.pending.target;
     status = `Incoming on your ${label(me.grid![t.row][t.col]!)}. Block with a Shield, or take the hit.`;
     banner = (
-      <div class="dealer alarm"><b>Incoming on your {label(me.grid![t.row][t.col]!)}.</b> Block with a Shield?
+      <div class="dealer panel alarm"><b>Incoming on your {label(me.grid![t.row][t.col]!)}.</b> Block with a Shield?
         {g.pending.shields.map((c) => <button class="btn gold" onClick={run(() => act({ type: 'shield', col: c }))}>Block with {label(me.grid![t.row][c]!)}</button>)}
         <button class="btn line" onClick={run(() => act({ type: 'shield', col: null }))}>Take the hit</button></div>
     );
   } else if (g.pending) {
     status = `${g.players[g.pending.defender].name} is deciding whether to block…`;
-    banner = <div class="dealer">{status}</div>;
+    banner = <div class="dealer panel">{status}</div>;
   }
   const hint = !myTurn ? '' : g.half === 'action'
     ? (sel.length === 0 ? 'Tap one of your front cards' : sel.length === 1 ? 'Now tap a target, or a card holding kills' : 'Pick a move')
@@ -285,24 +293,24 @@ function Play({ data, run, send, onLeave }: TableProps) {
 
   return (
     <Page title={data.room.name} right={right} onLeave={onLeave}>
-      <main class="felt table" ref={table}>
+      <main class="main board" ref={board}>
         <p class="sr-only" role="status">{status}</p>
         <div class="opps" style={{ '--n': g.players.length - 1 }}>{g.players.map((p, pi) => {
           if (pi === meIdx) return null;
           const playing = pi === g.turn && g.phase === 'play';
           return (
-            <section key={p.id} class={cls('opp', playing && 'turn', !p.alive && 'out')}>
+            <section key={p.id} class={cls('opp panel', playing && 'turn', !p.alive && 'out')}>
               <header><span class="av" aria-hidden="true">{p.name[0].toUpperCase()}</span><h2>{p.name}</h2>{!p.alive && <span class="pill">Out</span>}{playing && <span class="pill hot">Playing</span>}</header>
               {p.alive && <div class="mini-grid">{grid(pi, true)}</div>}
             </section>
           );
         })}</div>
         {banner}
-        <section class={cls('mine', myTurn && 'turn', !me.alive && 'out')}>
+        <section class={cls('mine panel', myTurn && 'turn', !me.alive && 'out')}>
           {me.alive ? <div class="my-grid">{grid(meIdx, false)}</div> : <p class="whisper">You are out. Watch the rest play.</p>}
         </section>
         {myTurn && (
-          <nav class="moves" aria-label="Moves"><span class="hint">{hint}</span>
+          <nav class="moves panel" aria-label="Moves"><span class="hint">{hint}</span>
             {g.half === 'action' && <>
               <button id="attack" class="btn gold" onClick={move(() => { const [a, t] = need2(); mine(a); return act({ type: 'attack', col: a.col, target: t }); })}>Attack</button>
               <button id="res" class="btn line" onClick={move(() => { const [a, s] = need2(); mine(a); return act({ type: 'resurrect', col: a.col, from: s }); })}>Resurrect</button>
@@ -316,7 +324,7 @@ function Play({ data, run, send, onLeave }: TableProps) {
             {sel.length > 0 && <button id="clear" class="btn line" onClick={() => setSel([])}>Clear</button>}
           </nav>
         )}
-        <aside id="log" class="drawer" hidden={!logOpen}><h2>Game log</h2>
+        <aside id="log" class="drawer panel" hidden={!logOpen}><h2>Game log</h2>
           <ol>{g.log.length ? g.log.slice().reverse().map((l) => <li>{prettyLog(l)}</li>) : <li>No moves yet.</li>}</ol>
           <p class="tiny">♣ Warrior kills up to double its value · ♦ Archer hits the back row · ♥ Healer revives a captured card · ♠ Shield blocks for its row</p></aside>
       </main>
@@ -366,7 +374,7 @@ function App() {
     join(null);
   });
   const props = { data: data!, run, send, onLeave };
-  const screen = !data ? <Page title="Last King Standing" onLeave={onLeave}><main class="felt center"><p class="whisper">Joining the game…</p></main></Page>
+  const screen = !data ? <Page title="Last King Standing" onLeave={onLeave}><main class="main center"><p class="whisper">Joining the game…</p></main></Page>
     : !data.game ? <Lobby {...props} />
     : data.game.phase === 'setup' ? <Setup {...props} showErr={setErr} />
     : <Play {...props} />;
