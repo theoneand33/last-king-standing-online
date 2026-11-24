@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, act, forfeit, view, newDeck } from '../src/game.js';
+import { createGame, act, forfeit, view, newDeck, type Game, type Grid } from '../src/game.ts';
 
 // Build a game in play phase. layouts: per player, 6 ids, front row first; 'K' = that player's King.
-function game(...layouts) {
+function game(...layouts: string[][]) {
   const used = new Set(layouts.flat());
   const filler = newDeck().filter((c) => !used.has(c.id));
   const byId = Object.fromEntries(newDeck().map((c) => [c.id, c]));
-  const deck = layouts.flatMap((l) => [...l.filter((id) => id !== 'K').map((id) => byId[id]), filler.pop(), filler.pop()]);
+  const deck = layouts.flatMap((l) => [...l.filter((id) => id !== 'K').map((id) => byId[id]), filler.pop()!, filler.pop()!]);
   const players = layouts.map((_, i) => ({ id: `p${i}`, name: `P${i}` }));
   const g = createGame(players, { deck });
   g.players.forEach((p, i) => {
@@ -16,9 +16,9 @@ function game(...layouts) {
   });
   return g;
 }
-const at = (g, pi, r, c) => g.players[pi].grid[r][c];
-const attack = (g, pid, col, player, row, tcol) => act(g, pid, { type: 'attack', col, target: { player, row, col: tcol } });
-const skip = (g, pid) => act(g, pid, { type: 'skip' });
+const at = (g: Game, pi: number, r: number, c: number) => (g.players[pi].grid as Grid)[r][c]!;
+const attack = (g: Game, pid: string, col: number, player: number, row: number, tcol: number) => act(g, pid, { type: 'attack', col, target: { player, row, col: tcol } });
+const skip = (g: Game, pid: string) => act(g, pid, { type: 'skip' });
 
 test('setup hides other hands, then starts play', () => {
   const g = createGame([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]);
@@ -29,7 +29,7 @@ test('setup hides other hands, then starts play', () => {
     act(g, p.id, { type: 'setup', discard: p.hand.slice(0, 2).map((c) => c.id), layout: [p.king.id, ...p.hand.slice(2).map((c) => c.id)] });
   }
   assert.equal(g.phase, 'play');
-  assert.equal(g.players[0].grid[0][0].kingOf, 'a');
+  assert.equal(at(g, 0, 0, 0).kingOf, 'a');
 });
 
 test('attacks, limits and row movement', () => {
@@ -60,7 +60,7 @@ test('archers hit the back row, front only when back is empty', () => {
 test('a ♠ in the same row can take the hit, even from the back row', () => {
   const g = game(['9S', '2H', '3H', 'K', '4H', '6H'], ['5C', '3C', 'QS', 'K', '7D', '8D']);
   attack(g, 'p0', 0, 1, 0, 0); // 9 attacks 5♣ (limit check uses value 5)
-  assert.deepEqual(g.pending.shields, [2]);
+  assert.deepEqual(g.pending?.shields, [2]);
   assert.throws(() => skip(g, 'p0'), /Waiting for a shield/);
   act(g, 'p1', { type: 'shield', col: 2 });
   assert.equal(at(g, 0, 0, 0).stack[0].id, 'QS');
@@ -91,7 +91,7 @@ test('resurrect brings a card back on your side and keeps the stack holder lower
   act(g, 'p0', { type: 'resurrect', col: 1, from: { player: 0, row: 0, col: 0 } }); // 9♥ ↔ 7♠
   assert.equal(at(g, 0, 0, 1).id, '7S');
   assert.equal(at(g, 0, 0, 1).limit, 7, 'returns with its face number as its limit');
-  assert.equal(at(g, 0, 0, 0).stack.at(-1).id, '9H');
+  assert.equal(at(g, 0, 0, 0).stack.at(-1)?.id, '9H');
   assert.equal(at(g, 0, 0, 0).limit, 6, '9♥ − 1 = 8 is higher, limit stays 6');
   assert.equal(g.half, 'swap');
 });

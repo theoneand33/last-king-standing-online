@@ -2,34 +2,82 @@
 // Every illegal move throws an Error whose message is safe to show players.
 
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-const SUITS = ['C', 'D', 'H', 'S']; // ♣ Warrior, ♦ Archer, ♥ Healer, ♠ Shield
+const SUITS = ['C', 'D', 'H', 'S'] as const; // ♣ Warrior, ♦ Archer, ♥ Healer, ♠ Shield
 export const MAX_PLAYERS = 10;
 const PER_DECK = 6; // a deck holds 4 aces + 2 jokers as Kings, and 48 cards deal 7 to 6 players
 export const UNLIMITED = 99; // above any card value (max 13); survives JSON, unlike Infinity
 
-export const value = (card) => (card.kingOf ? 1 : RANKS.indexOf(card.rank) + 2);
+export type Suit = (typeof SUITS)[number];
+export type Card = {
+  id: string;
+  rank: string;
+  suit: Suit | null; // null for Kings
+  kingOf: string | null; // owner's player id, for Kings
+  limit: number;
+  stack: Card[];
+  sick: number; // turnNo it was resurrected on
+};
+type Slot = Card | null;
+export type Grid = [Slot[], Slot[]]; // front row, back row; 3 columns each
+export type Cell = { player: number; row: number; col: number };
+export type Player = {
+  id: string;
+  name: string;
+  alive: boolean;
+  ready: boolean;
+  hand: Card[];
+  king: Card;
+  grid: Grid | null; // null until laid out
+};
+export type Pending = { attacker: { player: number; col: number }; target: Cell; defender: number; shields: number[] };
+export type Game = {
+  phase: 'setup' | 'play' | 'over';
+  turn: number; // seat index whose turn it is
+  half: 'action' | 'swap';
+  turnNo: number;
+  pending: Pending | null; // an attack waiting for the defender's shield decision
+  winner: string | null;
+  log: string[];
+  players: Player[];
+};
+// Action fields arrive as untrusted JSON; the engine validates each one.
+export type Action =
+  | { type: 'setup'; discard: string[]; layout: string[] }
+  | { type: 'skip' }
+  | { type: 'swap'; player: number; a: [number, number]; b: [number, number] }
+  | { type: 'attack'; col: number; target: Cell }
+  | { type: 'resurrect'; col: number; from: Cell }
+  | { type: 'shield'; col: number | null };
+/** What one player sees: during setup, others' hands are a count and their grids hidden. */
+export type GameView = Omit<Game, 'players'> & { players: (Omit<Player, 'hand'> & { hand: Card[] | number })[] };
 
-const fail = (msg) => { throw new Error(msg); };
-const pos = (x, size, what) =>
-  Number.isInteger(x) && x >= 0 && x < size ? x : fail(`Bad ${what}`);
-const emptyGrid = () => [[null, null, null], [null, null, null]];
-const cardsIn = (grid) => grid.flat().filter(Boolean);
+export const value = (card: Card) => (card.kingOf ? 1 : RANKS.indexOf(card.rank) + 2);
 
-const tag = (d) => (d ? `-${d + 1}` : ''); // keeps card ids unique across decks
+function fail(msg: string): never { throw new Error(msg); }
+const pos = (x: unknown, size: number, what: string) =>
+  Number.isInteger(x) && (x as number) >= 0 && (x as number) < size ? (x as number) : fail(`Bad ${what}`);
+const emptyGrid = (): Grid => [[null, null, null], [null, null, null]];
+const cardsIn = (grid: Grid) => grid.flat().filter(Boolean);
+// Only called once play has started, when every living player has laid out.
+const gridOf = (p: Player) => p.grid ?? fail('Not laid out yet');
+
+const tag = (d: number) => (d ? `-${d + 1}` : ''); // keeps card ids unique across decks
+
+type DealCard = { id: string; rank: string; suit: Suit };
 
 // The deal deck: no aces or jokers, those are only ever Kings.
-export function newDeck(decks = 1) {
+export function newDeck(decks = 1): DealCard[] {
   return Array.from({ length: decks }, (_, d) =>
     SUITS.flatMap((suit) => RANKS.map((rank) => ({ id: rank + suit + tag(d), rank, suit })))).flat();
 }
 
 // One ace per player, then jokers once the aces run out.
-function kings(decks) {
-  const ids = (names) => Array.from({ length: decks }, (_, d) => names.map((n) => n + tag(d))).flat();
+function kings(decks: number) {
+  const ids = (names: string[]) => Array.from({ length: decks }, (_, d) => names.map((n) => n + tag(d))).flat();
   return [...ids(['AC', 'AD', 'AH', 'AS']).map((id) => [id, 'A']), ...ids(['JK1', 'JK2']).map((id) => [id, 'JK'])];
 }
 
-function shuffle(a) {
+function shuffle<T>(a: T[]) {
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
@@ -38,26 +86,26 @@ function shuffle(a) {
 }
 
 // A Warrior (♣) doubles its value. Kings start unlimited, but this applies to one resurrected later.
-const faceLimit = (card) => (card.suit === 'C' ? 2 : 1) * value(card);
+const faceLimit = (card: Card) => (card.suit === 'C' ? 2 : 1) * value(card);
 
-function makeCard({ id, rank, suit }) {
-  const card = { id, rank, suit, kingOf: null, limit: 0, stack: [], sick: -1 };
+function makeCard({ id, rank, suit }: DealCard): Card {
+  const card: Card = { id, rank, suit, kingOf: null, limit: 0, stack: [], sick: -1 };
   card.limit = faceLimit(card);
   return card;
 }
 
 /** players: [{id, name}] in clockwise seat order. deck: optional deal order (tests). */
-export function createGame(players, { deck } = {}) {
+export function createGame(players: { id: string; name: string }[], { deck }: { deck?: DealCard[] } = {}): Game {
   if (players.length < 2 || players.length > MAX_PLAYERS) fail(`Need 2–${MAX_PLAYERS} players`);
   const decks = Math.ceil(players.length / PER_DECK);
   const pile = (deck ?? shuffle(newDeck(decks))).map(makeCard);
   const kingCards = kings(decks);
   return {
     phase: 'setup', // setup → play → over
-    turn: 0, // seat index whose turn it is
+    turn: 0,
     half: 'action', // action → swap
     turnNo: 0,
-    pending: null, // an attack waiting for the defender's shield decision
+    pending: null,
     winner: null,
     log: [],
     players: players.map((p, i) => ({
@@ -76,7 +124,7 @@ export function createGame(players, { deck } = {}) {
 }
 
 /** Apply one player's action. Mutates g. Throws on illegal moves. */
-export function act(g, playerId, a) {
+export function act(g: Game, playerId: string, a: Action) {
   const pi = g.players.findIndex((p) => p.id === playerId);
   if (pi < 0) fail('Not in this game');
   if (!a || typeof a !== 'object') fail('Bad action');
@@ -112,7 +160,7 @@ export function act(g, playerId, a) {
   advance(g);
 }
 
-function setup(g, me, { discard, layout }) {
+function setup(g: Game, me: Player, { discard, layout }: { discard: unknown; layout: unknown }) {
   if (me.ready) fail('Already laid out');
   if (!Array.isArray(discard) || !Array.isArray(layout)) fail('Bad layout');
   if (discard.length !== 2 || new Set(discard).size !== 2) fail('Discard exactly 2 cards');
@@ -130,29 +178,30 @@ function setup(g, me, { discard, layout }) {
   }
 }
 
-function attack(g, pi, a) {
-  const me = g.players[pi];
+function attack(g: Game, pi: number, a: Extract<Action, { type: 'attack' }>) {
+  const me = gridOf(g.players[pi]);
   const col = pos(a.col, 3, 'attacker');
-  const atk = me.grid[0][col] ?? fail('No card there');
+  const atk = me[0][col] ?? fail('No card there');
   if (atk.suit === 'H') fail('Healers cannot attack');
   if (atk.sick === g.turnNo) fail('A resurrected card acts from your next turn');
 
   const ti = pos(a.target?.player, g.players.length, 'target player');
   const t = g.players[ti];
   if (ti === pi || !t.alive) fail('Pick a living opponent');
+  const grid = gridOf(t);
   const tr = pos(a.target.row, 2, 'target row');
   const tc = pos(a.target.col, 3, 'target column');
-  const victim = t.grid[tr][tc] ?? fail('No card there');
+  const victim = grid[tr][tc] ?? fail('No card there');
 
-  const backEmpty = t.grid[1].every((c) => !c);
+  const backEmpty = grid[1].every((c) => !c);
   if (atk.suit === 'D') {
     if (tr !== (backEmpty ? 0 : 1)) fail('Archers hit the back row (front only once it is empty)');
   } else if (tr !== 0) fail('Only front-row targets');
   if (value(victim) > atk.limit) fail(`Above this card's limit (${atk.limit})`);
-  if (victim.kingOf === t.id && cardsIn(t.grid).length > 1 && atk.stack.length < 3)
+  if (victim.kingOf === t.id && cardsIn(grid).length > 1 && atk.stack.length < 3)
     fail('The King is protected until its owner has no other cards, or you have 3+ kills');
 
-  const shields = [0, 1, 2].filter((c) => c !== tc && t.grid[tr][c]?.suit === 'S');
+  const shields = [0, 1, 2].filter((c) => c !== tc && grid[tr][c]?.suit === 'S');
   if (shields.length) {
     g.pending = { attacker: { player: pi, col }, target: { player: ti, row: tr, col: tc }, defender: ti, shields };
     return true;
@@ -161,19 +210,20 @@ function attack(g, pi, a) {
   return false;
 }
 
-function resolveShield(g, col) {
-  const { attacker, target, shields } = g.pending;
+function resolveShield(g: Game, col: number | null | undefined) {
+  const { attacker, target, shields } = g.pending!;
   if (col != null && !shields.includes(col)) fail('That card cannot shield');
   g.pending = null;
-  const atk = g.players[attacker.player].grid[0][attacker.col];
+  const atk = gridOf(g.players[attacker.player])[0][attacker.col]!;
   kill(g, atk, target.player, target.row, col ?? target.col);
 }
 
-function kill(g, atk, ti, r, c) {
+function kill(g: Game, atk: Card, ti: number, r: number, c: number) {
   const t = g.players[ti];
-  const victim = t.grid[r][c];
-  t.grid[r][c] = null;
-  if (r === 0) [t.grid[0][c], t.grid[1][c]] = [t.grid[1][c], null]; // card behind moves up
+  const grid = gridOf(t);
+  const victim = grid[r][c]!;
+  grid[r][c] = null;
+  if (r === 0) [grid[0][c], grid[1][c]] = [grid[1][c], null]; // card behind moves up
   victim.stack = []; // the victim's own kills leave the game
   atk.stack.push(victim);
   atk.limit = Math.min(atk.limit, value(victim) - 1);
@@ -181,39 +231,41 @@ function kill(g, atk, ti, r, c) {
   if (victim.kingOf === t.id) eliminate(g, ti);
 }
 
-function resurrect(g, pi, a) {
+function resurrect(g: Game, pi: number, a: Extract<Action, { type: 'resurrect' }>) {
   const me = g.players[pi];
+  const grid = gridOf(me);
   const col = pos(a.col, 3, 'healer');
-  const healer = me.grid[0][col];
+  const healer = grid[0][col];
   if (healer?.suit !== 'H') fail('Pick a front-row ♥');
   if (healer.sick === g.turnNo) fail('A resurrected card acts from your next turn');
   const oi = pos(a.from?.player, g.players.length, 'stack owner');
   const owner = g.players[oi];
   if (!owner.alive) fail('That player is out');
-  const holder = owner.grid[pos(a.from.row, 2, 'stack row')][pos(a.from.col, 3, 'stack column')];
+  const holder = gridOf(owner)[pos(a.from.row, 2, 'stack row')][pos(a.from.col, 3, 'stack column')];
   if (!holder?.stack.length) fail('That card has no stack');
 
-  const back = holder.stack.pop();
+  const back = holder.stack.pop()!;
   back.sick = g.turnNo;
   back.limit = faceLimit(back); // a fresh limit: face value, ♣ doubled, a King 1
-  me.grid[0][col] = back;
+  grid[0][col] = back;
   holder.stack.push(healer);
   holder.limit = Math.min(holder.limit, value(healer) - 1);
   g.log.push(`${me.name}'s ${healer.id} resurrected ${back.id} from ${holder.id}`);
 }
 
-function swap(g, a) {
+function swap(g: Game, a: Extract<Action, { type: 'swap' }>) {
   const p = g.players[pos(a.player, g.players.length, 'player')];
   if (!p.alive) fail('That player is out');
+  const grid = gridOf(p);
   const [r1, c1] = [pos(a.a?.[0], 2, 'row'), pos(a.a?.[1], 3, 'column')];
   const [r2, c2] = [pos(a.b?.[0], 2, 'row'), pos(a.b?.[1], 3, 'column')];
-  if (!p.grid[r1][c1] || !p.grid[r2][c2]) fail('Swap two living cards');
+  if (!grid[r1][c1] || !grid[r2][c2]) fail('Swap two living cards');
   if (r1 === r2 && c1 === c2) fail('Pick two different cards');
-  [p.grid[r1][c1], p.grid[r2][c2]] = [p.grid[r2][c2], p.grid[r1][c1]];
-  g.log.push(`${g.players[g.turn].name} swapped ${p.grid[r1][c1].id} and ${p.grid[r2][c2].id}`);
+  [grid[r1][c1], grid[r2][c2]] = [grid[r2][c2], grid[r1][c1]];
+  g.log.push(`${g.players[g.turn].name} swapped ${grid[r1][c1]!.id} and ${grid[r2][c2]!.id}`);
 }
 
-function eliminate(g, ti) {
+function eliminate(g: Game, ti: number) {
   const t = g.players[ti];
   t.alive = false;
   t.grid = emptyGrid(); // remaining cards leave the game
@@ -226,20 +278,20 @@ function eliminate(g, ti) {
   }
 }
 
-function advance(g) {
+function advance(g: Game) {
   if (g.phase !== 'play') return;
   if (g.half === 'action') { g.half = 'swap'; return; }
   nextTurn(g);
 }
 
-function nextTurn(g) {
+function nextTurn(g: Game) {
   g.half = 'action';
   g.turnNo++;
   do g.turn = (g.turn + 1) % g.players.length; while (!g.players[g.turn].alive);
 }
 
 /** A player leaves: they are out. Keeps the game moving if it was waiting on them. */
-export function forfeit(g, playerId) {
+export function forfeit(g: Game, playerId: string) {
   const ti = g.players.findIndex((p) => p.id === playerId);
   if (ti < 0 || !g.players[ti].alive || g.phase === 'over') return;
   const wasTurn = g.phase === 'play' && g.turn === ti;
@@ -254,11 +306,11 @@ export function forfeit(g, playerId) {
 }
 
 /** What one player may see: during setup, other players' hands and layouts are hidden. */
-export function view(g, playerId) {
-  const v = structuredClone(g);
+export function view(g: Game, playerId: string | undefined): GameView {
+  const v: GameView = structuredClone(g);
   for (const p of v.players) {
     if (g.phase === 'setup' && p.id !== playerId) {
-      p.hand = p.hand.length;
+      p.hand = (p.hand as Card[]).length;
       p.grid = null;
     }
   }

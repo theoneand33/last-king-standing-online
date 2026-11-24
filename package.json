@@ -3,9 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
-    "start": "node src/server.js",
-    "test": "node --test"
+    "build": "esbuild client/main.tsx --bundle --minify --target=es2022 --outfile=public/client.js",
+    "prestart": "npm run build",
+    "start": "node src/server.ts",
+    "typecheck": "tsc",
+    "test": "tsc && node --test"
+  },
+  "dependencies": {
+    "preact": "^11.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
   }
 }
