@@ -65,7 +65,7 @@ function Page({ title, right, onLeave, children }: { title: string; right?: Comp
     <>
       <header class="top">
         <div class="brand"><span class="logo"><Crown /></span><h1>{title}</h1></div>
-        <div class="top-r">{right}{onLeave && <button id="leave" class="btn line" onClick={onLeave}>Leave table</button>}</div>
+        <div class="top-r">{right}{onLeave && <button id="leave" class="btn line" onClick={onLeave}>Leave game</button>}</div>
       </header>
       {children}
     </>
@@ -106,7 +106,7 @@ function useCardMotion() {
 const SeatRing = ({ names, max, size }: { names: string[]; max: number; size: string }) => (
   <div class={`ring ${size}`} style={{ '--n': max }}>
     {Array.from({ length: max }, (_, i) => (
-      <span class={cls('seat', names[i] && 'taken')} style={{ '--i': i }} title={names[i] ?? 'Open seat'}>{names[i]?.[0].toUpperCase()}</span>
+      <span class={cls('seat', names[i] && 'taken')} style={{ '--i': i }} title={names[i] ?? 'Open spot'}>{names[i]?.[0].toUpperCase()}</span>
     ))}
   </div>
 );
@@ -131,27 +131,27 @@ function Browser({ run, onJoin }: { run: Run; onJoin: (s: Session) => void }) {
     <Page title="Last King Standing">
       <main class="felt">
         <section class="opener">
-          <h2>Pull up a chair</h2>
-          <p>A card war for 2 to 10 players. Guard your King, strike theirs, be the last crown on the table.</p>
+          <h2>Play a game</h2>
+          <p>A card war for 2 to 10 players. Guard your King, strike theirs, be the last King standing.</p>
           <form id="new" class="newbar" onSubmit={(e) => { e.preventDefault(); sit('/api/rooms', form)(); }}>
             <label><span>Your name</span><input id="name" autocomplete="nickname" maxLength={24} value={form.name} required
               onInput={(e) => setForm({ ...form, name: e.currentTarget.value })} /></label>
-            <label><span>Table name</span><input id="room" placeholder="Friday night" maxLength={24} value={form.room}
+            <label><span>Game name</span><input id="room" placeholder="Friday night" maxLength={24} value={form.room}
               onInput={(e) => setForm({ ...form, room: e.currentTarget.value })} /></label>
-            <label><span>Seats</span><select id="max" value={form.max} onChange={(e) => setForm({ ...form, max: +e.currentTarget.value })}>
+            <label><span>Players</span><select id="max" value={form.max} onChange={(e) => setForm({ ...form, max: +e.currentTarget.value })}>
               {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option value={n}>{n}</option>)}</select></label>
-            <button id="create" class="btn gold">Open a table</button>
+            <button id="create" class="btn gold">Create game</button>
           </form>
         </section>
         <section class="tables">
-          <h2>{offline ? OFFLINE : rooms.length ? `${rooms.length} table${rooms.length > 1 ? 's' : ''} open` : 'No tables yet. Open the first one.'}</h2>
+          <h2>{offline ? OFFLINE : rooms.length ? `${rooms.length} game${rooms.length > 1 ? 's' : ''} open` : 'No games yet. Create the first one.'}</h2>
           <div class="table-grid">{rooms.map((r) => {
             const open = r.status === 'lobby' && r.players.length < r.max;
             return (
               <article class="mini" key={r.id}>
                 <SeatRing names={r.players} max={r.max} size="small" />
-                <div class="mini-t"><b>{r.name}</b><span>{r.players.length} of {r.max} seated · {r.status === 'lobby' ? 'waiting' : 'playing'}</span></div>
-                {open ? <button class="btn gold" onClick={sit(`/api/rooms/${r.id}/join`, { name: form.name })}>Sit down</button>
+                <div class="mini-t"><b>{r.name}</b><span>{r.players.length} of {r.max} players · {r.status === 'lobby' ? 'waiting' : 'playing'}</span></div>
+                {open ? <button class="btn gold" onClick={sit(`/api/rooms/${r.id}/join`, { name: form.name })}>Join</button>
                   : <span class="pill">{r.status === 'lobby' ? 'Full' : 'In play'}</span>}
               </article>
             );
@@ -167,16 +167,16 @@ type TableProps = { data: RoomView; run: Run; send: (path: string, body?: object
 function Lobby({ data, run, send, onLeave }: TableProps) {
   const { room, you } = data;
   return (
-    <Page title={room.name} right={<span class="pill">{room.players.length}/{room.max} seated</span>} onLeave={onLeave}>
+    <Page title={room.name} right={<span class="pill">{room.players.length}/{room.max} players</span>} onLeave={onLeave}>
       <main class="felt center">
         <div class="oval">
           <SeatRing names={room.players} max={room.max} size="big" />
           <div class="oval-c">
             <p class="whisper">{room.players.join(' · ')}</p>
             {room.host === you ? <>
-              <button id="start" class="btn gold big" disabled={room.players.length < 2} onClick={run(() => send('start', {}))}>Deal the cards</button>
-              <p class="whisper">{room.players.length < 2 ? 'Needs one more player' : 'Open seats stay empty once you deal'}</p>
-            </> : <p class="whisper">The host deals when everyone is in</p>}
+              <button id="start" class="btn gold big" disabled={room.players.length < 2} onClick={run(() => send('start', {}))}>Start game</button>
+              <p class="whisper">{room.players.length < 2 ? 'Needs one more player' : 'No one else can join once you start'}</p>
+            </> : <p class="whisper">The host starts the game when everyone is in</p>}
           </div>
         </div>
       </main>
@@ -196,14 +196,14 @@ function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m
   const me = g.players.find((p) => p.id === data.you)!;
   if (!me.alive || me.ready) {
     const waiting = g.players.filter((p) => p.alive && !p.ready).map((p) => p.name);
-    return <Page title={data.room.name} onLeave={onLeave}><main class="felt center"><p class="whisper">Waiting for {waiting.join(', ')} to lay out…</p></main></Page>;
+    return <Page title={data.room.name} onLeave={onLeave}><main class="felt center"><p class="whisper">Waiting for {waiting.join(', ')} to place their cards…</p></main></Page>;
   }
   const pool = [me.king, ...(me.hand as CardT[])];
   const { discard, layout } = pick;
   const byId = (id: string) => pool.find((c) => c.id === id)!;
   const placing = discard.length >= 2;
   const tap = (id: string) => {
-    if (!placing && id === me.king.id) return showErr('Your King stays on the table');
+    if (!placing && id === me.king.id) return showErr('You can’t discard your King');
     showErr('');
     setPick(placing ? { discard, layout: [...layout, id] } : { discard: [...discard, id], layout });
   };
@@ -260,8 +260,8 @@ function Play({ data, run, send, onLeave }: TableProps) {
   let banner: ComponentChildren = null;
   let status = turnName; // read out by the live region below
   if (g.phase === 'over') {
-    status = `${g.players.find((p) => p.id === g.winner)!.name} wins the table`;
-    banner = <div class="dealer win"><b>{status}</b><button id="leave2" class="btn gold" onClick={onLeave}>Back to tables</button></div>;
+    status = `${g.players.find((p) => p.id === g.winner)!.name} wins`;
+    banner = <div class="dealer win"><b>{status}</b><button id="leave2" class="btn gold" onClick={onLeave}>Back to games</button></div>;
   } else if (g.pending && g.pending.defender === meIdx) {
     const t = g.pending.target;
     status = `Incoming on your ${label(me.grid![t.row][t.col]!)}. Block with a Shield, or take the hit.`;
@@ -316,7 +316,7 @@ function Play({ data, run, send, onLeave }: TableProps) {
             {sel.length > 0 && <button id="clear" class="btn line" onClick={() => setSel([])}>Clear</button>}
           </nav>
         )}
-        <aside id="log" class="drawer" hidden={!logOpen}><h2>Table log</h2>
+        <aside id="log" class="drawer" hidden={!logOpen}><h2>Game log</h2>
           <ol>{g.log.length ? g.log.slice().reverse().map((l) => <li>{prettyLog(l)}</li>) : <li>No moves yet.</li>}</ol>
           <p class="tiny">♣ Warrior kills up to double its value · ♦ Archer hits the back row · ♥ Healer revives a captured card · ♠ Shield blocks for its row</p></aside>
       </main>
@@ -366,7 +366,7 @@ function App() {
     join(null);
   });
   const props = { data: data!, run, send, onLeave };
-  const screen = !data ? <Page title="Last King Standing" onLeave={onLeave}><main class="felt center"><p class="whisper">Finding your seat…</p></main></Page>
+  const screen = !data ? <Page title="Last King Standing" onLeave={onLeave}><main class="felt center"><p class="whisper">Joining the game…</p></main></Page>
     : !data.game ? <Lobby {...props} />
     : data.game.phase === 'setup' ? <Setup {...props} showErr={setErr} />
     : <Play {...props} />;
