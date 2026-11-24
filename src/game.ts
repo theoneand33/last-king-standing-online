@@ -295,8 +295,8 @@ export function forfeit(g: Game, playerId: string) {
   const ti = g.players.findIndex((p) => p.id === playerId);
   if (ti < 0 || !g.players[ti].alive || g.phase === 'over') return;
   const wasTurn = g.phase === 'play' && g.turn === ti;
-  const wasPending = g.pending;
-  g.pending = null; // a pending attack fizzles
+  const wasPending = g.pending?.defender === ti;
+  if (wasTurn || wasPending) g.pending = null; // an attack fizzles only if its attacker (whose turn it is) or defender left
   eliminate(g, ti);
   if (g.phase === 'setup' && g.players.every((p) => p.ready || !p.alive)) {
     g.phase = 'play';

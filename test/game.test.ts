@@ -112,6 +112,22 @@ test('forfeit ends the game for the last opponent', () => {
   assert.equal(g.winner, 'p1');
 });
 
+test('only the attacker or defender leaving cancels a pending attack', () => {
+  const layouts = [['9S', '2H', '3H', 'K', '4H', '6H'], ['5C', '3C', 'QS', 'K', '7D', '8D'], ['2C', '2D', '2S', 'K', '3D', '4D']];
+  const g = game(...layouts);
+  attack(g, 'p0', 0, 1, 0, 0);
+  forfeit(g, 'p2');
+  assert.ok(g.pending, 'a bystander leaving keeps the attack');
+  act(g, 'p1', { type: 'shield', col: null });
+  assert.equal(at(g, 0, 0, 0).stack[0].id, '5C');
+
+  const h = game(...layouts);
+  attack(h, 'p0', 0, 1, 0, 0);
+  forfeit(h, 'p0');
+  assert.equal(h.pending, null, 'the attacker leaving cancels it');
+  assert.equal(h.turn, 1);
+});
+
 test('a resurrected King comes back with limit 1', () => {
   const g = game(['KS', '2H', '3H', '4H', '5H', 'K'], ['K', 'QC', 'JC', '2D', '10D', '9D'], ['9H', '3C', '4C', 'K', '5C', '6C']);
   for (const col of [1, 2, 1]) {

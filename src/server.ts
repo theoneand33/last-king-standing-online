@@ -11,6 +11,7 @@ const PUBLIC = new URL('../public/', import.meta.url);
 const STATIC: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'] };
 const CARD_ART = /^\/cards\/((10|[2-9JQKA])[CDHS]|JK[12])\.png$/; // card faces, see public/cards/LICENSE.txt
 const IDLE_MS = 60 * 60 * 1000;
+const MAX_ROOMS = 1000; // room creation is open to anyone; caps memory and disk
 
 type Seat = { id: string; token: string; name: string; left: boolean };
 type Client = { res: http.ServerResponse; token: string | null };
@@ -73,6 +74,7 @@ export function createServer({ db: dbPath = ':memory:' } = {}) {
     'GET /api/rooms': () => [...rooms.values()].map(summary),
 
     'POST /api/rooms': ({ body }) => {
+      if (rooms.size >= MAX_ROOMS) throw new Error('Too many rooms, try later');
       const max = Number.isInteger(body.max) && body.max >= 2 && body.max <= MAX_PLAYERS ? body.max : 4;
       const r: Room = { id: rid(6), name: text(body.room, 'Room'), max, players: [], game: null, clients: new Set(), host: null, touched: 0 };
       const p = addPlayer(r, text(body.name, 'Player'));
@@ -124,8 +126,9 @@ export function createServer({ db: dbPath = ':memory:' } = {}) {
       const file = STATIC[url.pathname] ?? (CARD_ART.test(url.pathname) && [url.pathname.slice(1), 'image/png']);
       if (req.method === 'GET' && file) {
         const [path, type] = file;
-        res.writeHead(200, { 'content-type': type });
-        return res.end(await readFile(new URL(path, PUBLIC)));
+        const data = await readFile(new URL(path, PUBLIC)); // before writeHead, so a failed read can still send an error
+        res.writeHead(200, { 'content-type': type, ...(type === 'image/png' && { 'cache-control': 'public, max-age=86400' }) });
+        return res.end(data);
       }
 
       const m = url.pathname.match(/^\/api\/rooms\/([\w-]+)\/(\w+)$/);

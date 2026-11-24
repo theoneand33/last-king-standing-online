@@ -58,3 +58,21 @@ test('rooms and games survive a server restart', async (t) => {
   assert.equal(status, 400, 'the old token still works');
   assert.match(err.error, /Lay out/);
 });
+
+test('the host leaving the lobby hands over the room', async (t) => {
+  const { base, post } = await listen(t);
+  const [, host] = await post('/api/rooms', { name: 'Ann', room: 'Hand', max: 3 });
+  const [, guest] = await post(`/api/rooms/${host.room}/join`, { name: 'Bob' });
+  await post(`/api/rooms/${host.room}/join`, { name: 'Cy' });
+  assert.equal((await post(`/api/rooms/${host.room}/leave`, {}, host.token))[0], 200);
+  assert.equal((await post(`/api/rooms/${host.room}/start`, {}, guest.token))[0], 200, 'the guest is host now');
+  await post(`/api/rooms/${host.room}/leave`, {}, guest.token);
+  const rooms = await fetch(`${base}/api/rooms`).then((r) => r.json());
+  assert.deepEqual(rooms[0].players, ['Cy']);
+});
+
+test('card images are cacheable', async (t) => {
+  const { base } = await listen(t);
+  const png = await fetch(`${base}/cards/AS.png`);
+  assert.equal(png.headers.get('cache-control'), 'public, max-age=86400');
+});
