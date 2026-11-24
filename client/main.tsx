@@ -10,6 +10,7 @@ type Run = <A extends unknown[]>(fn: (...args: A) => unknown) => (...args: A) =>
 
 const SYM: Record<Suit, string> = { C: '♣', D: '♦', H: '♥', S: '♠' };
 const ROLE: Record<Suit, string> = { C: 'Warrior', D: 'Archer', H: 'Healer', S: 'Shield' };
+const OFFLINE = "Can't reach the server. Check your connection; retrying…";
 
 const store = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -22,9 +23,9 @@ async function api<T = any>(path: string, body?: object, token = ''): Promise<T>
     method: body ? 'POST' : 'GET',
     headers: { 'content-type': 'application/json', 'x-token': token },
     body: body && JSON.stringify(body),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error);
+  }).catch(() => { throw new Error(OFFLINE); });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || `Server error (${res.status}). Try again in a moment.`);
   return json;
 }
 
@@ -39,15 +40,15 @@ const lim = (c: CardT) => (c.limit >= 99 ? '∞' : c.limit);
 const red = (c: CardT) => c.suit === 'D' || c.suit === 'H';
 const cls = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
 
-type CardProps = { c: CardT | null; small?: boolean; extra?: string; disabled?: boolean; pressed?: boolean; onClick?: () => void; style?: Record<string, number> };
-function Card({ c, small, extra, disabled, pressed, onClick, style }: CardProps) {
+type CardProps = { c: CardT | null; small?: boolean; extra?: string; disabled?: boolean; pressed?: boolean; onClick?: () => void; style?: Record<string, number>; where?: string };
+function Card({ c, small, extra, disabled, pressed, onClick, style, where }: CardProps) {
   if (!c) return <span class={cls('pc gap', small && 'sm')} aria-hidden="true" />;
   const kills = c.stack.length;
   const name = c.kingOf ? 'King' : `${c.rank} of ${ROLE[c.suit!]}s`;
   const idx = c.kingOf ? <Crown /> : <><b>{c.rank}</b><i>{SYM[c.suit!]}</i></>;
   return (
     <button type="button" class={cls('pc', c.kingOf ? 'king' : red(c) && 'red', small && 'sm', extra)} disabled={disabled}
-      aria-pressed={pressed} onClick={onClick} style={style} data-id={c.id} aria-label={`${name}, kills up to ${lim(c)}, ${kills} kills`}>
+      aria-pressed={pressed} onClick={onClick} style={style} data-id={c.id} aria-label={`${where ? `${where}: ` : ''}${name}, kills up to ${lim(c)}, ${kills} kills`}>
       <span class="ix tl">{idx}</span><span class="face">{c.kingOf ? <Crown /> : SYM[c.suit!]}</span><span class="ix br">{idx}</span>
       <span class="role">{c.kingOf ? 'King' : ROLE[c.suit!]}</span>
       <span class="chips">
@@ -59,10 +60,11 @@ function Card({ c, small, extra, disabled, pressed, onClick, style }: CardProps)
 }
 
 function Page({ title, right, onLeave, children }: { title: string; right?: ComponentChildren; onLeave?: () => void; children: ComponentChildren }) {
+  useEffect(() => { document.title = title; }, [title]);
   return (
     <>
       <header class="top">
-        <div class="brand"><span class="logo"><Crown /></span><span>{title}</span></div>
+        <div class="brand"><span class="logo"><Crown /></span><h1>{title}</h1></div>
         <div class="top-r">{right}{onLeave && <button id="leave" class="btn line" onClick={onLeave}>Leave table</button>}</div>
       </header>
       {children}
@@ -112,9 +114,10 @@ const SeatRing = ({ names, max, size }: { names: string[]; max: number; size: st
 // ---------- screens ----------
 function Browser({ run, onJoin }: { run: Run; onJoin: (s: Session) => void }) {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
+  const [offline, setOffline] = useState(false);
   const [form, setForm] = useState({ name: store.get('lks-name') ?? '', room: '', max: 4 });
   useEffect(() => {
-    const load = () => api<RoomSummary[]>('/api/rooms').then(setRooms, () => setRooms([]));
+    const load = () => api<RoomSummary[]>('/api/rooms').then((r) => { setRooms(r); setOffline(false); }, () => setOffline(true));
     load();
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
@@ -128,12 +131,12 @@ function Browser({ run, onJoin }: { run: Run; onJoin: (s: Session) => void }) {
     <Page title="Last King Standing">
       <main class="felt">
         <section class="opener">
-          <h1>Pull up a chair.</h1>
+          <h2>Pull up a chair.</h2>
           <p>A card war for 2 to 10 players. Guard your King, strike theirs, be the last crown on the table.</p>
           <form id="new" class="newbar" onSubmit={(e) => { e.preventDefault(); sit('/api/rooms', form)(); }}>
             <label><span>Your name</span><input id="name" autocomplete="nickname" maxLength={24} value={form.name} required
               onInput={(e) => setForm({ ...form, name: e.currentTarget.value })} /></label>
-            <label><span>Table name</span><input id="room" placeholder="Friday night" maxLength={32} value={form.room}
+            <label><span>Table name</span><input id="room" placeholder="Friday night" maxLength={24} value={form.room}
               onInput={(e) => setForm({ ...form, room: e.currentTarget.value })} /></label>
             <label><span>Seats</span><select id="max" value={form.max} onChange={(e) => setForm({ ...form, max: +e.currentTarget.value })}>
               {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option value={n}>{n}</option>)}</select></label>
@@ -141,7 +144,7 @@ function Browser({ run, onJoin }: { run: Run; onJoin: (s: Session) => void }) {
           </form>
         </section>
         <section class="tables">
-          <h2>{rooms.length ? `${rooms.length} table${rooms.length > 1 ? 's' : ''} open` : 'No tables yet. Open the first one.'}</h2>
+          <h2>{offline ? OFFLINE : rooms.length ? `${rooms.length} table${rooms.length > 1 ? 's' : ''} open` : 'No tables yet. Open the first one.'}</h2>
           <div class="table-grid">{rooms.map((r) => {
             const open = r.status === 'lobby' && r.players.length < r.max;
             return (
@@ -183,6 +186,12 @@ function Lobby({ data, run, send, onLeave }: TableProps) {
 
 function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m: string) => void }) {
   const [pick, setPick] = useState<{ discard: string[]; layout: string[] }>({ discard: [], layout: [] });
+  const tray = useRef<HTMLDivElement>(null);
+  // A picked card unmounts and drops keyboard focus to <body>: hand it to the next card, or to Lock in.
+  useEffect(() => {
+    if (document.activeElement !== document.body) return;
+    (tray.current?.querySelector<HTMLElement>('.hand .pc') ?? document.getElementById('confirm'))?.focus();
+  }, [pick]);
   const g = data.game!;
   const me = g.players.find((p) => p.id === data.you)!;
   if (!me.alive || me.ready) {
@@ -199,7 +208,7 @@ function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m
     setPick(placing ? { discard, layout: [...layout, id] } : { discard: [...discard, id], layout });
   };
   const slot = (i: number) => layout[i] ? <Card key={layout[i]} c={byId(layout[i])} disabled extra="land" />
-    : <span key={`slot${i}`} class={cls('pc ghost', placing && i === layout.length && 'next')}>{i < 3 ? 'Front' : 'Back'}</span>;
+    : <span key={`slot${i}`} class={cls('pc ghost', placing && i === layout.length && 'next')}>{placing && i === layout.length && <b>Next</b>}{i < 3 ? 'Front' : 'Back'}</span>;
 
   return (
     <Page title={data.room.name} right={<span class="pill">{placing ? 'Place 6' : `Discard ${2 - discard.length}`}</span>} onLeave={onLeave}>
@@ -210,7 +219,7 @@ function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m
           <div class="formation">{[0, 1, 2, 3, 4, 5].map(slot)}</div>
           <p class="whisper">{placing ? 'Tap cards in order: front row left to right, then the back row.' : 'Tap two cards to throw away. Your King stays.'}</p>
         </div>
-        <div class="hand-tray">
+        <div class="hand-tray" ref={tray}>
           <div class="hand">{pool.map((c, i) => discard.includes(c.id) || layout.includes(c.id) ? null
             : <Card key={c.id} c={c} style={{ '--i': i }} onClick={() => tap(c.id)} />)}</div>
           <div class="tray-actions">
@@ -243,22 +252,28 @@ function Play({ data, run, send, onLeave }: TableProps) {
 
   const grid = (pi: number, small: boolean) => g.players[pi].grid!.flatMap((row, r) => row.map((c, col) => (
     <Card key={c?.id ?? `gap${r}${col}`} c={c} small={small} extra={isSel(pi, r, col) ? 'sel' : undefined}
+      where={`${pi === meIdx ? 'Your' : `${g.players[pi].name}'s`} ${r === 0 ? 'front' : 'back'} row`}
       pressed={isSel(pi, r, col)} onClick={() => toggle(pi, r, col)} />
   )));
 
+  const turnName = g.phase === 'play' ? (myTurn ? 'Your move' : `${g.players[g.turn].name} to play`) : 'Game over';
   let banner: ComponentChildren = null;
+  let status = turnName; // read out by the live region below
   if (g.phase === 'over') {
-    banner = <div class="dealer win"><b>{g.players.find((p) => p.id === g.winner)!.name} wins the table.</b><button id="leave2" class="btn gold" onClick={onLeave}>Back to tables</button></div>;
+    status = `${g.players.find((p) => p.id === g.winner)!.name} wins the table.`;
+    banner = <div class="dealer win"><b>{status}</b><button id="leave2" class="btn gold" onClick={onLeave}>Back to tables</button></div>;
   } else if (g.pending && g.pending.defender === meIdx) {
     const t = g.pending.target;
+    status = `Incoming on your ${label(me.grid![t.row][t.col]!)}. Block with a Shield, or take the hit.`;
     banner = (
       <div class="dealer alarm"><b>Incoming on your {label(me.grid![t.row][t.col]!)}.</b> Block with a Shield?
         {g.pending.shields.map((c) => <button class="btn gold" onClick={run(() => act({ type: 'shield', col: c }))}>Block with {label(me.grid![t.row][c]!)}</button>)}
         <button class="btn line" onClick={run(() => act({ type: 'shield', col: null }))}>Take the hit</button></div>
     );
-  } else if (g.pending) banner = <div class="dealer">{g.players[g.pending.defender].name} is deciding whether to block…</div>;
-
-  const turnName = g.phase === 'play' ? (myTurn ? 'Your move' : `${g.players[g.turn].name} to play`) : 'Game over';
+  } else if (g.pending) {
+    status = `${g.players[g.pending.defender].name} is deciding whether to block…`;
+    banner = <div class="dealer">{status}</div>;
+  }
   const hint = !myTurn ? '' : g.half === 'action'
     ? (sel.length === 0 ? 'Tap one of your front cards' : sel.length === 1 ? 'Now tap a target, or a card holding kills' : 'Pick a move')
     : 'Swap two cards in one layout, or pass';
@@ -271,12 +286,13 @@ function Play({ data, run, send, onLeave }: TableProps) {
   return (
     <Page title={data.room.name} right={right} onLeave={onLeave}>
       <main class="felt table" ref={table}>
+        <p class="sr-only" role="status">{status}</p>
         <div class="opps" style={{ '--n': g.players.length - 1 }}>{g.players.map((p, pi) => {
           if (pi === meIdx) return null;
           const playing = pi === g.turn && g.phase === 'play';
           return (
             <section key={p.id} class={cls('opp', playing && 'turn', !p.alive && 'out')}>
-              <header><span class="av">{p.name[0].toUpperCase()}</span><b>{p.name}</b>{!p.alive && <span class="pill">Out</span>}{playing && <span class="pill hot">Playing</span>}</header>
+              <header><span class="av" aria-hidden="true">{p.name[0].toUpperCase()}</span><h2>{p.name}</h2>{!p.alive && <span class="pill">Out</span>}{playing && <span class="pill hot">Playing</span>}</header>
               {p.alive && <div class="mini-grid">{grid(pi, true)}</div>}
             </section>
           );
@@ -312,6 +328,7 @@ function App() {
   const [session, setSession] = useState(loadSession);
   const [data, setData] = useState<RoomView | null>(null);
   const [err, setErr] = useState('');
+  const [offline, setOffline] = useState(false);
   const run: Run = (fn) => async (...args) => {
     setErr('');
     try { await fn(...args); } catch (e) { setErr((e as Error).message); }
@@ -325,20 +342,26 @@ function App() {
   useEffect(() => {
     if (!session) return;
     const stream = new EventSource(`/api/rooms/${session.room}/events?token=${encodeURIComponent(session.token)}`);
-    stream.onmessage = (e) => setData(JSON.parse(e.data));
+    stream.onopen = () => setOffline(false);
+    stream.onmessage = (e) => { setOffline(false); setData(JSON.parse(e.data)); };
     stream.onerror = async () => {
-      // EventSource retries on its own; only give up if the room is gone.
+      // EventSource retries on its own; say so, and only give up if the room is gone.
+      setOffline(true);
       const rooms = await api<RoomSummary[]>('/api/rooms').catch(() => null);
       if (rooms && !rooms.some((r) => r.id === session.room)) join(null);
     };
-    return () => stream.close();
+    return () => { stream.close(); setOffline(false); };
   }, [session]);
 
-  const errBox = <div id="error" role="alert" hidden={!err}>{err}</div>;
+  const errBox = (
+    <div id="error" role="alert" hidden={!err && !offline}>
+      {err || OFFLINE}{err && <button type="button" class="x" aria-label="Dismiss" onClick={() => setErr('')}>×</button>}
+    </div>
+  );
   if (!session) return <><Browser run={run} onJoin={join} />{errBox}</>;
   const send = (path: string, body?: object) => api(`/api/rooms/${session.room}/${path}`, body, session.token);
   const onLeave = run(async () => {
-    if (data?.game?.phase === 'play' && !confirm('Leaving forfeits the game. Leave?')) return;
+    if (data?.game && data.game.phase !== 'over' && !confirm('Leaving forfeits the game. Leave?')) return;
     await send('leave', {}).catch(() => {});
     join(null);
   });
