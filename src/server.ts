@@ -10,6 +10,7 @@ import { createGame, act, forfeit, view, MAX_PLAYERS, type Game, type GameView }
 const PUBLIC = new URL('../public/', import.meta.url);
 const STATIC: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/client.js': ['client.js', 'text/javascript'] };
 const CARD_ART = /^\/cards\/((10|[2-9JQKA])[CDHS]|JK[12])\.png$/; // card faces, see public/cards/LICENSE.txt
+const SFX = /^\/sfx\/[a-z]+\.mp3$/; // sound effects, made in SoundCraft
 const IDLE_MS = 60 * 60 * 1000;
 const MAX_ROOMS = 1000; // room creation is open to anyone; caps memory and disk
 
@@ -123,11 +124,12 @@ export function createServer({ db: dbPath = ':memory:' } = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
     try {
-      const file = STATIC[url.pathname] ?? (CARD_ART.test(url.pathname) && [url.pathname.slice(1), 'image/png']);
+      const asset = url.pathname.slice(1);
+      const file = STATIC[url.pathname] ?? (CARD_ART.test(url.pathname) ? [asset, 'image/png'] : SFX.test(url.pathname) ? [asset, 'audio/mpeg'] : null);
       if (req.method === 'GET' && file) {
         const [path, type] = file;
         const data = await readFile(new URL(path, PUBLIC)); // before writeHead, so a failed read can still send an error
-        res.writeHead(200, { 'content-type': type, ...(type === 'image/png' && { 'cache-control': 'public, max-age=86400' }) });
+        res.writeHead(200, { 'content-type': type, ...(!STATIC[url.pathname] ? { 'cache-control': 'public, max-age=86400' } : {}) });
         return res.end(data);
       }
 
