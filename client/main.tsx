@@ -3,7 +3,10 @@ import { render } from 'preact';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Action, Card as CardT, Cell, Suit } from '../src/game.ts';
+import type { GameView } from '../src/game.ts';
 import type { RoomSummary, RoomView } from '../src/server.ts';
+import { newLines } from './log.ts';
+import { sfx, sound } from './sfx.ts';
 
 type Session = { room: string; token: string };
 type Run = <A extends unknown[]>(fn: (...args: A) => unknown) => (...args: A) => Promise<void>;
@@ -76,13 +79,27 @@ function ThemeToggle() {
   );
 }
 
+function SoundToggle() {
+  const [on, setOn] = useState(sound.on);
+  const flip = () => { sound.set(!on); setOn(!on); if (!on) sfx('select'); };
+  return (
+    <button id="sound" type="button" class="btn line icon" aria-label="Sound" title="Sound" aria-pressed={on} onClick={flip}>
+      {/* Lucide icons (ISC licence): volume-2 / volume-x */}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z" />
+        {on ? <path d="M16 9a5 5 0 0 1 0 6m3.4 2.7a9 9 0 0 0 0-11.4" /> : <path d="m22 9-6 6m0-6 6 6" />}
+      </svg>
+    </button>
+  );
+}
+
 function Page({ title, right, onLeave, children }: { title: string; right?: ComponentChildren; onLeave?: () => void; children: ComponentChildren }) {
   useEffect(() => { document.title = title; }, [title]);
   return (
     <>
       <header class="top">
         <div class="brand"><span class="logo"><Crown /></span><h1>{title}</h1></div>
-        <div class="top-r">{right}<ThemeToggle />{onLeave && <button id="leave" class="btn line" onClick={onLeave}>Leave game</button>}</div>
+        <div class="top-r">{right}<SoundToggle /><ThemeToggle />{onLeave && <button id="leave" class="btn line" onClick={onLeave}>Leave game</button>}</div>
       </header>
       {children}
     </>
@@ -213,6 +230,8 @@ function Setup({ data, run, send, onLeave, showErr }: TableProps & { showErr: (m
   const tap = (id: string) => {
     if (!placing && id === me.king.id) return showErr('You can’t discard your King');
     showErr('');
+    // Each placed card lands a step higher up a pentatonic scale, Balatro style.
+    if (placing) sfx('place', [0, 2, 4, 7, 9, 12][layout.length]); else sfx('select', discard.length * 3);
     setPick(placing ? { discard, layout: [...layout, id] } : { discard: [...discard, id], layout });
   };
   const slot = (i: number) => layout[i] ? <Card key={layout[i]} c={byId(layout[i])} disabled extra="land" />
@@ -250,9 +269,12 @@ function Play({ data, run, send, onLeave }: TableProps) {
   const me = g.players[meIdx];
   const myTurn = g.phase === 'play' && g.turn === meIdx && !g.pending;
   const isSel = (pi: number, r: number, c: number) => sel.some((s) => s.player === pi && s.row === r && s.col === c);
-  const toggle = (player: number, row: number, col: number) => setSel(isSel(player, row, col)
-    ? sel.filter((s) => !(s.player === player && s.row === row && s.col === col))
-    : [...sel.slice(-1), { player, row, col }]); // keep the last two picks
+  const toggle = (player: number, row: number, col: number) => {
+    const off = isSel(player, row, col);
+    sfx('select', off ? -5 : sel.length ? 5 : 0); // second pick rings higher, a drop drops
+    setSel(off ? sel.filter((s) => !(s.player === player && s.row === row && s.col === col))
+      : [...sel.slice(-1), { player, row, col }]); // keep the last two picks
+  };
   const act = (action: Action) => send('action', { action });
   const move = (fn: () => unknown) => run(async () => { await fn(); setSel([]); });
   const need2 = () => { if (sel.length !== 2) throw new Error('Select two cards'); return sel; };
@@ -332,6 +354,25 @@ function Play({ data, run, send, onLeave }: TableProps) {
   );
 }
 
+// Sounds for what changed between two views of the game, for every player watching.
+function playEvents(was: GameView, g: GameView, you: string | null) {
+  const won = g.phase === 'over' && was.phase !== 'over';
+  for (const l of newLines(was.log, g.log)) {
+    if (l.endsWith(' is out')) { if (!won || g.winner !== you) sfx('out'); }
+    else if (l.includes(' resurrected ')) sfx('resurrect');
+    else if (l.includes(' swapped ')) sfx('swap');
+    else if (l.includes(' killed ')) {
+      // The killer's pitch climbs with its kill count, like a growing combo.
+      const atk = g.players.flatMap((p) => p.grid?.flat() ?? []).find((c) => c?.id === l.split(' ')[0]);
+      sfx('kill', 2 * Math.min((atk?.stack.length ?? 1) - 1, 6));
+    }
+  }
+  if (g.pending && !was.pending) sfx('shield');
+  const me = g.players.findIndex((p) => p.id === you);
+  if (g.phase === 'play' && g.turn === me && (was.phase !== 'play' || was.turn !== me)) sfx('turn');
+  if (won && g.winner === you) sfx('win');
+}
+
 function App() {
   const [session, setSession] = useState(loadSession);
   const [data, setData] = useState<RoomView | null>(null);
@@ -339,8 +380,14 @@ function App() {
   const [offline, setOffline] = useState(false);
   const run: Run = (fn) => async (...args) => {
     setErr('');
-    try { await fn(...args); } catch (e) { setErr((e as Error).message); }
+    try { await fn(...args); } catch (e) { setErr((e as Error).message); sfx('error'); }
   };
+  const seen = useRef<GameView | null>(null);
+  useEffect(() => {
+    const g = data?.game ?? null, was = seen.current;
+    seen.current = g;
+    if (g && was) playEvents(was, g, data!.you);
+  }, [data]);
   const join = (s: Session | null) => {
     store.set('lks', s && JSON.stringify(s));
     setSession(s);

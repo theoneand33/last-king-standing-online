@@ -20,6 +20,7 @@ Open the server URL, enter a name, create or join a room from the browser, and t
 - `src/server.ts`: rooms / server browser over HTTP; each client gets its own filtered view over Server-Sent Events.
 - `client/main.tsx`: Preact client, bundled by esbuild to `public/client.js`.
 - `public/index.html`: page and styles.
+- `public/sfx/`: sound effects, rendered from the SoundCraft session `assets/sfx/sfx.session` (one sound every 4 s) and played by `client/sfx.ts`.
 
 API: `GET /api/rooms`, `POST /api/rooms`, `POST /api/rooms/:id/{join,start,action,leave}` (with an `x-token` header),
 `GET /api/rooms/:id/events?token=` (SSE).

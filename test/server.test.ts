@@ -71,8 +71,11 @@ test('the host leaving the lobby hands over the room', async (t) => {
   assert.deepEqual(rooms[0].players, ['Cy']);
 });
 
-test('card images are cacheable', async (t) => {
+test('card images and sounds are cacheable', async (t) => {
   const { base } = await listen(t);
   const png = await fetch(`${base}/cards/AS.png`);
   assert.equal(png.headers.get('cache-control'), 'public, max-age=86400');
+  const mp3 = await fetch(`${base}/sfx/kill.mp3`);
+  assert.equal(mp3.headers.get('content-type'), 'audio/mpeg');
+  assert.equal(mp3.headers.get('cache-control'), 'public, max-age=86400');
 });
