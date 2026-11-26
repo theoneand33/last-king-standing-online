@@ -37,6 +37,7 @@ test('attacks, limits and row movement', () => {
   assert.throws(() => attack(g, 'p0', 1, 1, 0, 1), /Healers cannot attack/);
   attack(g, 'p0', 0, 1, 0, 0); // 9♣ (limit 18) kills 9♠ → limit 8
   assert.equal(at(g, 0, 0, 0).limit, 8);
+  assert.deepEqual(g.log, [{ type: 'kill', player: 0, card: { rank: '9', suit: 'C' }, kills: 1, owner: 1, victim: { rank: '9', suit: 'S' } }]);
   assert.equal(at(g, 1, 0, 0).kingOf, 'p1', 'King moved up');
   assert.equal(at(g, 1, 1, 0), null);
   assert.equal(g.half, 'swap');
@@ -163,4 +164,13 @@ test('a resurrected ♣ comes back with a fresh doubled limit', () => {
   act(g, 'p0', { type: 'resurrect', col: 1, from: { player: 0, row: 0, col: 0 } });
   assert.equal(at(g, 0, 0, 1).id, '5C');
   assert.equal(at(g, 0, 0, 1).limit, 10);
+});
+
+test('a view carries the log tail and where it starts', () => {
+  const g = game(['KC', '9H', '2H', 'K', '3H', '4H'], ['7S', '5D', '2D', 'K', '8D', '3D']);
+  for (let i = 0; i < 32; i++) act(g, g.players[g.turn].id, { type: 'swap', player: 0, a: [0, 0], b: [0, 1] });
+  const v = view(g, 'p0');
+  assert.equal(v.logStart + v.log.length, 32);
+  assert.ok(v.log.length < 32, 'the view trims the log');
+  assert.deepEqual(v.log.at(-1), g.log.at(-1));
 });

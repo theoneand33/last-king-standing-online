@@ -4,6 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
+import { DatabaseSync } from 'node:sqlite';
 import { createServer, type RoomView } from '../src/server.ts';
 
 async function listen(t: { after: (fn: () => void) => void }, opts = {}) {
@@ -59,6 +60,16 @@ test('rooms and games survive a server restart', async (t) => {
   assert.match(err.error, /Lay out/);
 });
 
+test('rooms saved in another shape are dropped on load', async (t) => {
+  const db = join(mkdtempSync(join(tmpdir(), 'lks-')), 'old.db');
+  const old = new DatabaseSync(db);
+  old.exec('CREATE TABLE rooms (id TEXT PRIMARY KEY, data TEXT NOT NULL)');
+  old.prepare('INSERT INTO rooms VALUES (?, ?)').run('r1', JSON.stringify({ id: 'r1', name: 'Old', max: 2, players: [], game: null, host: null, touched: Date.now() }));
+  old.close();
+  const { base } = await listen(t, { db });
+  assert.deepEqual(await fetch(`${base}/api/rooms`).then((r) => r.json()), []);
+});
+
 test('the host leaving the lobby hands over the room', async (t) => {
   const { base, post } = await listen(t);
   const [, host] = await post('/api/rooms', { name: 'Ann', room: 'Hand', max: 3 });
@@ -71,6 +82,16 @@ test('the host leaving the lobby hands over the room', async (t) => {
   assert.deepEqual(rooms[0].players, ['Cy']);
 });
 
+test('a seat that left can no longer stream the room', async (t) => {
+  const { base, post } = await listen(t);
+  const [, host] = await post('/api/rooms', { name: 'Ann', room: 'Gone', max: 3 });
+  const [, guest] = await post(`/api/rooms/${host.room}/join`, { name: 'Bob' });
+  await post(`/api/rooms/${host.room}/start`, {}, host.token);
+  await post(`/api/rooms/${host.room}/leave`, {}, guest.token);
+  assert.equal((await fetch(`${base}/api/rooms/${host.room}/events?token=${guest.token}`)).status, 403);
+  assert.equal((await fetch(`${base}/api/rooms/nope/events?token=${guest.token}`)).status, 404);
+});
+
 test('card images and sounds are cacheable', async (t) => {
   const { base } = await listen(t);
   const png = await fetch(`${base}/cards/AS.png`);
@@ -78,4 +99,5 @@ test('card images and sounds are cacheable', async (t) => {
   const mp3 = await fetch(`${base}/sfx/kill.mp3`);
   assert.equal(mp3.headers.get('content-type'), 'audio/mpeg');
   assert.equal(mp3.headers.get('cache-control'), 'public, max-age=86400');
+  assert.equal((await fetch(`${base}/cards/nope.png`)).status, 404);
 });
