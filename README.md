@@ -14,6 +14,10 @@ Rooms are saved to SQLite at `$DB_PATH` (default `lks.db`), so games survive a r
 
 Open the server URL, enter a name, create or join a room from the browser, and the host starts the game.
 
+## Deploy (Coolify / Docker)
+
+Use the `Dockerfile` build pack. The app listens on port 3000 and keeps its database at `/data/lks.db`, so mount a persistent volume at `/data`. Run a single instance only, because live updates and room state belong to one process.
+
 ## Layout
 
 - `src/game.ts`: rules engine (pure state machine, server-authoritative).
