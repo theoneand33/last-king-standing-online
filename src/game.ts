@@ -3,6 +3,7 @@
 
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 const SUITS = ['C', 'D', 'H', 'S'] as const; // ♣ Warrior, ♦ Archer, ♥ Healer, ♠ Shield
+export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 10;
 const PER_DECK = 6; // a deck holds 4 aces + 2 jokers as Kings, and 48 cards deal 7 to 6 players
 export const UNLIMITED = 99; // above any card value (max 13); survives JSON, unlike Infinity
@@ -10,6 +11,7 @@ export const UNLIMITED = 99; // above any card value (max 13); survives JSON, un
 export type Suit = (typeof SUITS)[number];
 export type Card = {
   id: string;
+  face: string; // the printed card, id without the deck tag: 7D, AH, JK1
   rank: string;
   suit: Suit | null; // null for Kings
   kingOf: string | null; // owner's player id, for Kings
@@ -29,6 +31,14 @@ export type Player = {
   king: Card;
   grid: Grid | null; // null until laid out
 };
+/** A card as the log names it. */
+export type CardName = Pick<Card, 'rank' | 'suit'>;
+/** Seats are indexes into Game.players. */
+export type LogEvent =
+  | { type: 'kill'; player: number; card: CardName; kills: number; owner: number; victim: CardName }
+  | { type: 'resurrect'; player: number; healer: CardName; card: CardName; from: CardName }
+  | { type: 'swap'; player: number; a: CardName; b: CardName }
+  | { type: 'out'; player: number };
 export type Pending = { attacker: { player: number; col: number }; target: Cell; defender: number; shields: number[] };
 export type Game = {
   phase: 'setup' | 'play' | 'over';
@@ -37,7 +47,7 @@ export type Game = {
   turnNo: number;
   pending: Pending | null; // an attack waiting for the defender's shield decision
   winner: string | null;
-  log: string[];
+  log: LogEvent[];
   players: Player[];
 };
 // Action fields arrive as untrusted JSON; the engine validates each one.
@@ -48,8 +58,9 @@ export type Action =
   | { type: 'attack'; col: number; target: Cell }
   | { type: 'resurrect'; col: number; from: Cell }
   | { type: 'shield'; col: number | null };
-/** What one player sees: during setup, others' hands are a count and their grids hidden. */
-export type GameView = Omit<Game, 'players'> & { players: (Omit<Player, 'hand'> & { hand: Card[] | number })[] };
+/** What one player sees: during setup, others' hands are a count and their grids hidden.
+ * `log` is the tail of the game's log; `logStart` is the index of its first event in the whole log. */
+export type GameView = Omit<Game, 'players'> & { logStart: number; players: (Omit<Player, 'hand'> & { hand: Card[] | number })[] };
 
 export const value = (card: Card) => (card.kingOf ? 1 : RANKS.indexOf(card.rank) + 2);
 
@@ -62,19 +73,21 @@ const cardsIn = (grid: Grid) => grid.flat().filter(Boolean);
 const gridOf = (p: Player) => p.grid ?? fail('Not laid out yet');
 
 const tag = (d: number) => (d ? `-${d + 1}` : ''); // keeps card ids unique across decks
+const name = (c: Card): CardName => ({ rank: c.rank, suit: c.suit });
 
-type DealCard = { id: string; rank: string; suit: Suit };
+type DealCard = { id: string; face: string; rank: string; suit: Suit };
 
 // The deal deck: no aces or jokers, those are only ever Kings.
 export function newDeck(decks = 1): DealCard[] {
   return Array.from({ length: decks }, (_, d) =>
-    SUITS.flatMap((suit) => RANKS.map((rank) => ({ id: rank + suit + tag(d), rank, suit })))).flat();
+    SUITS.flatMap((suit) => RANKS.map((rank) => ({ id: rank + suit + tag(d), face: rank + suit, rank, suit })))).flat();
 }
 
 // One ace per player, then jokers once the aces run out.
 function kings(decks: number) {
-  const ids = (names: string[]) => Array.from({ length: decks }, (_, d) => names.map((n) => n + tag(d))).flat();
-  return [...ids(['AC', 'AD', 'AH', 'AS']).map((id) => [id, 'A']), ...ids(['JK1', 'JK2']).map((id) => [id, 'JK'])];
+  const all = (faces: string[], rank: string) =>
+    Array.from({ length: decks }, (_, d) => faces.map((face) => ({ id: face + tag(d), face, rank }))).flat();
+  return [...all(SUITS.map((s) => 'A' + s), 'A'), ...all(['JK1', 'JK2'], 'JK')];
 }
 
 function shuffle<T>(a: T[]) {
@@ -88,15 +101,15 @@ function shuffle<T>(a: T[]) {
 // A Warrior (♣) doubles its value. Kings start unlimited, but this applies to one resurrected later.
 const faceLimit = (card: Card) => (card.suit === 'C' ? 2 : 1) * value(card);
 
-function makeCard({ id, rank, suit }: DealCard): Card {
-  const card: Card = { id, rank, suit, kingOf: null, limit: 0, stack: [], sick: -1 };
+function makeCard({ id, face, rank, suit }: DealCard): Card {
+  const card: Card = { id, face, rank, suit, kingOf: null, limit: 0, stack: [], sick: -1 };
   card.limit = faceLimit(card);
   return card;
 }
 
 /** players: [{id, name}] in clockwise seat order. deck: optional deal order (tests). */
 export function createGame(players: { id: string; name: string }[], { deck }: { deck?: DealCard[] } = {}): Game {
-  if (players.length < 2 || players.length > MAX_PLAYERS) fail(`Need 2–${MAX_PLAYERS} players`);
+  if (players.length < MIN_PLAYERS || players.length > MAX_PLAYERS) fail(`Need ${MIN_PLAYERS}–${MAX_PLAYERS} players`);
   const decks = Math.ceil(players.length / PER_DECK);
   const pile = (deck ?? shuffle(newDeck(decks))).map(makeCard);
   const kingCards = kings(decks);
@@ -114,10 +127,7 @@ export function createGame(players: { id: string; name: string }[], { deck }: { 
       alive: true,
       ready: false,
       hand: pile.splice(0, 7),
-      king: {
-        id: kingCards[i][0], rank: kingCards[i][1], suit: null, kingOf: p.id,
-        limit: UNLIMITED, stack: [], sick: -1,
-      },
+      king: { ...kingCards[i], suit: null, kingOf: p.id, limit: UNLIMITED, stack: [], sick: -1 },
       grid: null,
     })),
   };
@@ -143,18 +153,15 @@ export function act(g: Game, playerId: string, a: Action) {
     return advance(g);
   }
   if (pi !== g.turn) fail('Not your turn');
+  if ((a.type === 'attack' || a.type === 'resurrect') && g.half !== 'action') fail('Only swaps in the swap half');
 
   switch (a.type) {
     case 'skip': break;
     case 'swap': swap(g, a); break;
     case 'attack':
-      if (g.half !== 'action') fail('Only swaps in the swap half');
       if (attack(g, pi, a)) return; // paused for a shield decision
       break;
-    case 'resurrect':
-      if (g.half !== 'action') fail('Only swaps in the swap half');
-      resurrect(g, pi, a);
-      break;
+    case 'resurrect': resurrect(g, pi, a); break;
     default: fail('Unknown action');
   }
   advance(g);
@@ -172,10 +179,14 @@ function setup(g: Game, me: Player, { discard, layout }: { discard: unknown; lay
   me.grid = [cards.slice(0, 3), cards.slice(3)];
   me.hand = [];
   me.ready = true;
-  if (g.players.every((p) => p.ready || !p.alive)) {
-    g.phase = 'play';
-    g.turn = g.players.findIndex((p) => p.alive);
-  }
+  startIfAllReady(g);
+}
+
+function startIfAllReady(g: Game) {
+  if (g.phase !== 'setup' || !g.players.every((p) => p.ready || !p.alive)) return false;
+  g.phase = 'play';
+  g.turn = g.players.findIndex((p) => p.alive);
+  return true;
 }
 
 function attack(g: Game, pi: number, a: Extract<Action, { type: 'attack' }>) {
@@ -206,7 +217,7 @@ function attack(g: Game, pi: number, a: Extract<Action, { type: 'attack' }>) {
     g.pending = { attacker: { player: pi, col }, target: { player: ti, row: tr, col: tc }, defender: ti, shields };
     return true;
   }
-  kill(g, atk, ti, tr, tc);
+  kill(g, pi, atk, ti, tr, tc);
   return false;
 }
 
@@ -215,10 +226,10 @@ function resolveShield(g: Game, col: number | null | undefined) {
   if (col != null && !shields.includes(col)) fail('That card cannot shield');
   g.pending = null;
   const atk = gridOf(g.players[attacker.player])[0][attacker.col]!;
-  kill(g, atk, target.player, target.row, col ?? target.col);
+  kill(g, attacker.player, atk, target.player, target.row, col ?? target.col);
 }
 
-function kill(g: Game, atk: Card, ti: number, r: number, c: number) {
+function kill(g: Game, pi: number, atk: Card, ti: number, r: number, c: number) {
   const t = g.players[ti];
   const grid = gridOf(t);
   const victim = grid[r][c]!;
@@ -227,7 +238,7 @@ function kill(g: Game, atk: Card, ti: number, r: number, c: number) {
   victim.stack = []; // the victim's own kills leave the game
   atk.stack.push(victim);
   atk.limit = Math.min(atk.limit, value(victim) - 1);
-  g.log.push(`${atk.id} killed ${t.name}'s ${victim.id}`);
+  g.log.push({ type: 'kill', player: pi, card: name(atk), kills: atk.stack.length, owner: ti, victim: name(victim) });
   if (victim.kingOf === t.id) eliminate(g, ti);
 }
 
@@ -246,11 +257,11 @@ function resurrect(g: Game, pi: number, a: Extract<Action, { type: 'resurrect' }
 
   const back = holder.stack.pop()!;
   back.sick = g.turnNo;
-  back.limit = faceLimit(back); // a fresh limit: face value, ♣ doubled, a King 1
+  back.limit = faceLimit(back);
   grid[0][col] = back;
   holder.stack.push(healer);
   holder.limit = Math.min(holder.limit, value(healer) - 1);
-  g.log.push(`${me.name}'s ${healer.id} resurrected ${back.id} from ${holder.id}`);
+  g.log.push({ type: 'resurrect', player: pi, healer: name(healer), card: name(back), from: name(holder) });
 }
 
 function swap(g: Game, a: Extract<Action, { type: 'swap' }>) {
@@ -262,14 +273,14 @@ function swap(g: Game, a: Extract<Action, { type: 'swap' }>) {
   if (!grid[r1][c1] || !grid[r2][c2]) fail('Swap two living cards');
   if (r1 === r2 && c1 === c2) fail('Pick two different cards');
   [grid[r1][c1], grid[r2][c2]] = [grid[r2][c2], grid[r1][c1]];
-  g.log.push(`${g.players[g.turn].name} swapped ${grid[r1][c1]!.id} and ${grid[r2][c2]!.id}`);
+  g.log.push({ type: 'swap', player: g.turn, a: name(grid[r1][c1]!), b: name(grid[r2][c2]!) });
 }
 
 function eliminate(g: Game, ti: number) {
   const t = g.players[ti];
   t.alive = false;
   t.grid = emptyGrid(); // remaining cards leave the game
-  g.log.push(`${t.name} is out`);
+  g.log.push({ type: 'out', player: ti });
   const alive = g.players.filter((p) => p.alive);
   if (alive.length === 1) {
     g.phase = 'over';
@@ -298,22 +309,22 @@ export function forfeit(g: Game, playerId: string) {
   const wasPending = g.pending?.defender === ti;
   if (wasTurn || wasPending) g.pending = null; // an attack fizzles only if its attacker (whose turn it is) or defender left
   eliminate(g, ti);
-  if (g.phase === 'setup' && g.players.every((p) => p.ready || !p.alive)) {
-    g.phase = 'play';
-    g.turn = g.players.findIndex((p) => p.alive);
-  } else if (wasTurn) nextTurn(g);
+  if (startIfAllReady(g)) return;
+  if (wasTurn) nextTurn(g);
   else if (wasPending) advance(g); // the defender left: the attacker moves on to the swap half
 }
 
+const LOG_TAIL = 30;
+
 /** What one player may see: during setup, other players' hands and layouts are hidden. */
 export function view(g: Game, playerId: string | undefined): GameView {
-  const v: GameView = structuredClone(g);
+  const logStart = Math.max(0, g.log.length - LOG_TAIL);
+  const v: GameView = { ...structuredClone({ ...g, log: g.log.slice(logStart) }), logStart };
   for (const p of v.players) {
     if (g.phase === 'setup' && p.id !== playerId) {
       p.hand = (p.hand as Card[]).length;
       p.grid = null;
     }
   }
-  v.log = v.log.slice(-30);
   return v;
 }

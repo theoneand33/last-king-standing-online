@@ -1,5 +1,7 @@
 // Sound effects: short clips made in SoundCraft (public/sfx), played through Web Audio so pitch can climb
 // with each pick and kill. Browsers only allow audio after a user gesture, so the context starts on the first one.
+import { store } from './store.ts';
+
 const NAMES = ['select', 'place', 'swap', 'kill', 'shield', 'resurrect', 'turn', 'out', 'win', 'error'] as const;
 export type Sfx = (typeof NAMES)[number];
 
@@ -7,10 +9,10 @@ let ctx: AudioContext | null = null;
 let out: GainNode;
 const buffers = new Map<Sfx, AudioBuffer>();
 export const sound = {
-  on: (() => { try { return localStorage.getItem('lks-sound') !== 'off'; } catch { return true; } })(),
+  on: store.get('lks-sound') !== 'off',
   set(on: boolean) {
     this.on = on;
-    try { localStorage.setItem('lks-sound', on ? 'on' : 'off'); } catch {}
+    store.set('lks-sound', on ? 'on' : 'off');
   },
 };
 

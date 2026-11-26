@@ -22,7 +22,7 @@ Use the `Dockerfile` build pack. The app listens on port 3000 and keeps its data
 
 - `src/game.ts`: rules engine (pure state machine, server-authoritative).
 - `src/server.ts`: rooms / server browser over HTTP; each client gets its own filtered view over Server-Sent Events.
-- `client/main.tsx`: Preact client, bundled by esbuild to `public/client.js`.
+- `client/`: Preact client, one file per screen (`browser`, `lobby`, `setup`, `play`) and the `App` in `main.tsx`; bundled by esbuild to `public/client.js`.
 - `public/index.html`: page and styles.
 - `public/sfx/`: sound effects, rendered from the SoundCraft session `assets/sfx/sfx.session` (one sound every 4 s) and played by `client/sfx.ts`.
 
